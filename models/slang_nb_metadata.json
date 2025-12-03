@@ -1,0 +1,20 @@
+{
+  "model": "MultinomialNB",
+  "pipeline": [
+    "TfidfVectorizer(char 3-5gram)",
+    "MultinomialNB"
+  ],
+  "classes": [
+    "non_slang",
+    "slang"
+  ],
+  "created_at": "2025-11-04T11:15:50.839284Z",
+  "dataset": "filipino_slang_words (tokens + negatives from PFNC)",
+  "vectorizer": {
+    "type": "tfidf-char",
+    "ngram_range": [
+      3,
+      5
+    ]
+  }
+}
