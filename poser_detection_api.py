@@ -96,23 +96,21 @@ if not firebase_admin._apps:
         service_account_json_string = os.environ.get('FIREBASE_CONFIG_JSON')
         
         if service_account_json_string:
-            # Step 1a: AGGRESSIVE STRIPPING (CRITICAL FIX for char 159 error)
-            # This cleans hidden whitespace, control characters, and any extra quotes 
-            # that Render might have wrapped around the JSON when saving.
+            # Step 1a: AGGRESSIVE STRIPPING (Cleans hidden characters/quotes)
             clean_json_string = service_account_json_string.strip().strip('"').strip("'")
 
-            # Step 1b: CRITICAL FIX: Replace escaped newlines (which the environment adds) with actual newlines
+            # Step 1b: CRITICAL FIX: Replace escaped newlines with actual newlines
             fixed_json_string = clean_json_string.replace('\\n', '\n') 
             
             # 2. Convert the fixed string back into a Python dictionary/JSON object
-            service_account_info = json.loads(fixed_json_string) # <--- This line should now succeed!
+            service_account_info = json.loads(fixed_json_string)
             
             # 3. Initialize the credentials using the dictionary
             cred = credentials.Certificate(service_account_info)
             firebase_admin.initialize_app(cred)
             print("Connected to CrediNews Firebase via Environment Variable!")
         else:
-            # Fallback for local development if the file is present
+            # Fallback for local development
             cred = credentials.Certificate("serviceAccountKey.json")
             firebase_admin.initialize_app(cred)
             print("Connected to CrediNews Firebase via Local File!")
