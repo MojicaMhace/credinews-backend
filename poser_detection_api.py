@@ -90,30 +90,13 @@ else:
     AI_AGENT_REASON = "missing_library" if not groq_lib_present else "missing_key"
     print("AI Agent Offline (Missing Key or Library)")
 
+# --- MODIFIED FIREBASE INITIALIZATION BLOCK ---
 if not firebase_admin._apps:
     try:
-        # 1. Get the entire JSON file contents as a string from the environment
-        service_account_json_string = os.environ.get('FIREBASE_CONFIG_JSON')
-        
-        if service_account_json_string:
-            # Step 1a: AGGRESSIVE STRIPPING (Cleans hidden characters/quotes)
-            clean_json_string = service_account_json_string.strip().strip('"').strip("'")
-
-            # Step 1b: CRITICAL FIX: Replace escaped newlines with actual newlines
-            fixed_json_string = clean_json_string.replace('\\n', '\n') 
-            
-            # 2. Convert the fixed string back into a Python dictionary/JSON object
-            service_account_info = json.loads(fixed_json_string)
-            
-            # 3. Initialize the credentials using the dictionary
-            cred = credentials.Certificate(service_account_info)
-            firebase_admin.initialize_app(cred)
-            print("Connected to CrediNews Firebase via Environment Variable!")
-        else:
-            # Fallback for local development
-            cred = credentials.Certificate("serviceAccountKey.json")
-            firebase_admin.initialize_app(cred)
-            print("Connected to CrediNews Firebase via Local File!")
+        # Initialize the credentials using the local file
+        cred = credentials.Certificate("serviceAccountKey.json")
+        firebase_admin.initialize_app(cred)
+        print("Connected to CrediNews Firebase via Local File!")
 
     except Exception as e:
         print(f"Firebase Connection Error: {e}")
@@ -123,6 +106,7 @@ try:
 except Exception:
     db = None
     print(" Firestore client could not be initialized.")
+# --- END MODIFIED BLOCK ---
 
 def _get_cache_key(url: str) -> str:
     return hashlib.md5(url.strip().lower().encode('utf-8')).hexdigest()
@@ -483,7 +467,7 @@ def run_apify_scraper(page_url: str) -> Optional[Dict[str, Any]]:
                 if link:
                     last_links.append(link.strip().lower())
             
-            if len(last_links) == 3 and (last_links[0] == last_links[1] == last_links[2]):    
+            if len(last_links) == 3 and (last_links[0] == last_links[1] == last_links[2]): 
                 print(f"DETECTED REPEATED LINKS: {last_links[0]}")
                 repeated_link_penalty = -20
         
@@ -855,7 +839,7 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         rationale_parts.append("custom profile image")
     if (meta.get("about") or meta.get("description")):
         rationale_parts.append("detailed bio")
-    if site_links_page:
+    if site_links_to_page:
         rationale_parts.append("website links back to page")
     elif site_has_fb:
         rationale_parts.append("website references Facebook")
