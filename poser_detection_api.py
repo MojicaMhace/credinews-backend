@@ -96,9 +96,12 @@ if not firebase_admin._apps:
         service_account_json_string = os.environ.get('FIREBASE_CONFIG_JSON')
         
         if service_account_json_string:
-            # --- CRITICAL FIX: Replace escaped newlines with actual newlines ---
-            # This is necessary because the environment variable may escape the \n characters.
-            fixed_json_string = service_account_json_string.replace('\\n', '\n') 
+            # Step 1a: Strip any leading/trailing quotes that Render/shell might add (CRITICAL for valid JSON parsing)
+            clean_json_string = service_account_json_string.strip().strip('"').strip("'")
+
+            # Step 1b: CRITICAL FIX: Replace escaped newlines with actual newlines
+            # This fixes the "Invalid control character" error from corrupted \n characters.
+            fixed_json_string = clean_json_string.replace('\\n', '\n') 
             
             # 2. Convert the fixed string back into a Python dictionary/JSON object
             service_account_info = json.loads(fixed_json_string)
