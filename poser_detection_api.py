@@ -16,8 +16,6 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
-
-# --- 1. AI AGENT SETUP (Groq) ---
 try:
     from groq import Groq
 except ImportError:
@@ -48,7 +46,6 @@ def _load_env_var(key: str, default: str = "") -> str:
 load_dotenv()
 
 
-# --- CONFIGURATION ---
 APIFY_TOKEN = (os.getenv("APIFY_TOKEN") or os.getenv("APIFY_API_TOKEN") or _load_env_var("APIFY_TOKEN"))
 META_GRAPH_TOKEN = _load_env_var("META_GRAPH_TOKEN")
 GRAPH_BASE_URL = (_load_env_var("GRAPH_BASE_URL", "https://graph.facebook.com/v24.0") or "https://graph.facebook.com/v24.0").strip().strip('`')
@@ -70,14 +67,12 @@ GRAPH_CACHE: Dict[str, Dict[str, Any]] = {}
 LAST_GRAPH_ERROR: Optional[Dict[str, Any]] = None
 
 
-# --- DATABASE COLLECTIONS ---
 RAW_DATA_COLLECTION = "analyzed_pages_cache"
 VERDICT_COLLECTION = "poser_detections"
 REGISTRY_COLLECTION = "verified_registry"
 OLD_CACHE_COLLECTION = "analyzed_pages_cache"
 
 
-# Initialize AI Client
 AI_AGENT_REASON = None
 groq_lib_present = bool(Groq)
 groq_key_present = bool(GROQ_API_KEY)
