@@ -45,7 +45,7 @@ FACT_CHECK_API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:sear
 
 # Zyla Labs Configuration
 ZYLA_API_URL = os.environ.get("ZYLA_API_URL", "https://zylalabs.com/api/2753/fact+checking+api/2860/check+facts")
-ZYLA_API_KEY = os.environ.get("ZYLA_API_KEY", "11018|hgGq1lMPYDpnVFB7YHAPcVpxgtjvWP9zlSFUJ5YS")
+ZYLA_API_KEY = os.environ.get("ZYLA_API_KEY")
 
 # FORCE ENABLED FOR PRESENTATION
 ZYLA_ENABLED = True
@@ -395,88 +395,135 @@ def debug_zyla():
 
 def parse_zyla_response(data: Any) -> Dict[str, Any]:
     """
-    Robust parser that handles Zyla's inconsistent JSON formats (List vs Dict, Case sensitivity).
+    Robust, Recursive Parser for Zyla's inconsistent JSON formats.
+    Updated to handle nested 'fact_check': {'verdict': 'True'} structures.
     """
-    # 1. Normalize Structure: Handle Stringified JSON inside List (["{...}"])
-    if isinstance(data, list):
-        item = None
-        for it in data:
-            if isinstance(it, dict):
-                item = it
+    extracted_data = data
+    final_dict = {}
+
+    # 1. Recursive Unpacking Strategy
+    for _ in range(4): 
+        if isinstance(extracted_data, dict):
+            final_dict = extracted_data
+            break 
+        
+        if isinstance(extracted_data, list):
+            if not extracted_data:
                 break
-            if isinstance(it, str):
-                try:
-                    item = json.loads(it)
-                    break
-                except Exception:
-                    continue
-        data = item or {}
-    elif isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except Exception:
-            data = {}
+            extracted_data = extracted_data[0] 
+            continue
             
-    if not isinstance(data, dict):
-        print("[Zyla Parse] Error: Data is not a dictionary after normalization")
-        return {
-            'verdict': None, 'confidence': None, 'statement': None,
-            'analysis': None, 'explanation': None, 'claim': None, 'sources': []
-        }
+        if isinstance(extracted_data, str):
+            try:
+                # Clean up API garbage characters
+                clean = extracted_data.strip()
+                
+                # FIX: Handle literal newline characters that break json.loads
+                clean = clean.replace('\\n', ' ').replace('\n', ' ')
+                
+                # Remove wrapping brackets/quotes artifact
+                if clean.startswith('[') and clean.endswith(']'):
+                    clean = clean[1:-1]
+                if clean.startswith('"') and clean.endswith('"'):
+                    clean = clean[1:-1].replace('\\"', '"')
 
-    # DEBUG: Print keys to help diagnose missing verdict
-    print(f"[Zyla Parse] Keys found: {list(data.keys())}")
+                extracted_data = json.loads(clean, strict=False)
+            except Exception:
+                break
 
-    # 2. Extract Verdict (Case-Insensitive Search)
-    # Convert all keys to lowercase for easier lookup
-    data_lower = {k.lower(): v for k, v in data.items()}
+    # 2. Validation & Normalization
+    # Check if we successfully parsed a dictionary
+    raw_string_dump = json.dumps(data) if data else ""
     
-    verdict_raw = (
-        data_lower.get('verdict') or 
-        data_lower.get('fact_check') or 
-        data_lower.get('fact_check_result') or # Targets "fact_check_result"
-        data_lower.get('result') or 
-        data_lower.get('status') or 
-        ''
-    ).strip().lower()
+    def normalize_verdict(v):
+        if not v: return None
+        v = str(v).strip().lower()
+        v = v.replace('"', '').replace("'", '').replace('\\', '')
+        
+        verdict_map = {
+            'verified': 'true', 'correct': 'true', 'accurate': 'true', 'true': 'true',
+            'false': 'false', 'fake': 'false', 'incorrect': 'false', 'not verified': 'false', 
+            'unverified': 'false', 'debunked': 'false', 'lie': 'false',
+            'misleading': 'partially_true', 'mixed': 'partially_true', 'partially true': 'partially_true',
+        }
+        return verdict_map.get(v, v)
 
-    print(f"[Zyla Parse] Raw Verdict Found: '{verdict_raw}'")
+    # Dictionary lookup (Case-Insensitive)
+    if isinstance(final_dict, dict) and final_dict:
+        data_lower = {k.lower(): v for k, v in final_dict.items()}
+        
+        # Priority keys to look for
+        keys_to_check = ['fact_check', 'fact_check_result', 'verdict', 'result', 'status', 'label']
+        verdict_raw = next((data_lower[k] for k in keys_to_check if k in data_lower), None)
+        
+        # FIX: Robust Nested Dictionary Handling
+        if isinstance(verdict_raw, dict):
+            # If we found a dict (like "fact_check"), look inside it for the actual verdict string
+            inner_lower = {k.lower(): v for k, v in verdict_raw.items()}
+            # Check for 'verdict', 'label', 'rating', 'result' inside the nested object
+            inner_verdict = next((inner_lower[k] for k in ['verdict', 'label', 'rating', 'result', 'fact_check'] if k in inner_lower), None)
+            if inner_verdict:
+                verdict_raw = inner_verdict
+            else:
+                # Fallback: if no specific key, check values for "True"/"False" strings
+                for val in inner_lower.values():
+                    if str(val).lower() in ['true', 'false', 'verified', 'fake']:
+                        verdict_raw = val
+                        break
+            
+        if verdict_raw and not isinstance(verdict_raw, dict):
+            final_dict['verdict'] = normalize_verdict(verdict_raw)
 
-    # Normalize verdict synonyms
-    verdict_map = {
-        'verified': 'true', 'correct': 'true', 'accurate': 'true', 'true': 'true',
-        'false': 'false', 'fake': 'false', 'incorrect': 'false', 'not verified': 'false', 'unverified': 'false',
-        'misleading': 'partially_true', 'mixed': 'partially_true', 'partially true': 'partially_true',
-    }
-    verdict = verdict_map.get(verdict_raw, verdict_raw)
+    # 3. Aggressive Regex Fallback (If dictionary lookup failed)
+    if not final_dict.get('verdict'):
+        # Matches: "verdict": "True" OR "label": "Fake"
+        patterns = [
+            r'(?:\\)?"(?:verdict|label|rating)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)(?:\\)?"',
+            r'(?:\\)?"(?:fact_check)(?:\\)?"\s*:\s*{\s*(?:\\)?"(?:verdict)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)'
+        ]
+        
+        for pat in patterns:
+            match = re.search(pat, raw_string_dump, re.IGNORECASE)
+            if match:
+                extracted_verdict = match.group(1)
+                final_dict['verdict'] = normalize_verdict(extracted_verdict)
+                final_dict['explanation'] = "Verdict extracted via fallback pattern."
+                final_dict['confidence'] = 1.0
+                break
 
+    # 4. Final Data Assembly
+    data_lower = {k.lower(): v for k, v in final_dict.items()}
+    verdict = final_dict.get('verdict')
 
-    # 3. Extract Confidence
-    confidence = data_lower.get('confidence')
-    if isinstance(confidence, (int, float)):
-        confidence = float(confidence)
-        if confidence > 1.0: confidence /= 100.0
-        confidence = max(0.0, min(1.0, confidence))
-    else:
-        # CHANGED: Fallback to 1.0 (100%) for clear verdicts, 0.5 for others
-        confidence = 1.0 if verdict in ['true', 'false'] else 0.5
-
-    # 4. Extract Explanation
+    # Extract Explanation - Updated to look inside nested 'fact_check' if needed
     explanation = (
         data_lower.get('explanation') or 
         data_lower.get('reason') or 
         data_lower.get('analysis') or 
-        None
+        data_lower.get('details') or
+        data_lower.get('statement')
     )
+    
+    # If explanation is missing but we have a nested object, check inside there
+    if not explanation and isinstance(data_lower.get('fact_check'), dict):
+        fc = data_lower.get('fact_check')
+        # fc keys might be mixed case, so we need to be careful or just check common ones
+        explanation = fc.get('reason') or fc.get('explanation') or fc.get('analysis')
+
+    # Final logic for Confidence
+    confidence = data_lower.get('confidence')
+    if isinstance(confidence, (int, float)):
+        confidence = float(confidence)
+        if confidence > 1.0: confidence /= 100.0
+    else:
+        confidence = 1.0 if verdict in ['true', 'false'] else 0.5
 
     return {
         'verdict': verdict or None,
         'confidence': confidence,
-        'statement': data_lower.get('statement'),
-        'analysis': data_lower.get('analysis'),
+        'statement': data_lower.get('statement') or data_lower.get('claim'),
         'explanation': explanation,
-        'claim': data_lower.get('claim'),
-        'sources': data.get('sources', [])
+        'sources': final_dict.get('sources', [])
     }
 
 def preprocess_text(text):
@@ -900,127 +947,148 @@ def fetch_url_content(url):
 
 
 def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
+    """
+    Robust Facebook Scraper (Handles Video/Watch & Standard Posts).
+    """
+    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+    import re
+    import html
+
+    # Force Desktop URL
+    if "m.facebook.com" in url:
+        url = url.replace("m.facebook.com", "www.facebook.com")
+
     try:
-        from playwright.sync_api import sync_playwright
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            context = browser.new_context(user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-            ))
+            browser = p.chromium.launch(
+                headless=True, 
+                args=['--disable-gpu', '--no-sandbox', '--disable-extensions', '--disable-notifications']
+            )
+            context = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                viewport={'width': 1280, 'height': 800}
+            )
             page = context.new_page()
-            try:
-                page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] else route.continue_())
-            except Exception:
-                pass
+            
+            # Block media to speed up
+            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] else route.continue_())
+
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=15000)
-            except Exception:
+                
+                # Check if we are in "Watch" mode (Video URL redirect)
+                is_video_view = "/watch" in page.url or "/videos/" in page.url or "/reel/" in page.url
+
+                # Wait for content
                 try:
-                    page.goto(url, timeout=15000)
-                except Exception:
-                    try:
-                        browser.close()
-                    except Exception:
-                        pass
-                    return {"text": "", "image_url": None, "page_name": None}
-            try:
-                page.wait_for_selector("body", timeout=15000)
-            except Exception:
-                pass
-            for sel in [
-                'button:has-text("Not Now")',
-                'button:has-text("Close")',
-                'div[aria-label="Close"]',
-                'div[role="dialog"] button'
-            ]:
-                try:
-                    page.locator(sel).first.click(timeout=1000)
-                except Exception:
+                    if is_video_view:
+                        # Video view often loads differently; wait for the video container
+                        page.wait_for_selector('div[data-pagelet="MainFeed"]', state="attached", timeout=8000)
+                    else:
+                        page.wait_for_selector('[role="article"]', state="attached", timeout=8000)
+                except:
                     pass
+
+            except Exception:
+                browser.close()
+                return {"text": "", "image_url": None, "page_name": None}
+
+            # --- DOM CLEANUP (The Fix) ---
+            try:
+                page.evaluate("""() => {
+                    // 1. Remove Comment Lists (Standard & Video Sidebar)
+                    document.querySelectorAll('div[aria-label="Comment list"]').forEach(el => el.remove());
+                    document.querySelectorAll('ul').forEach(el => el.remove());
+                    
+                    // 2. Remove "Most Relevant" Filter (Your screenshot shows this)
+                    document.querySelectorAll('div[role="button"]').forEach(el => {
+                        if(el.innerText.includes('Most relevant')) el.closest('div').remove();
+                    });
+
+                    // 3. Remove Input Forms
+                    document.querySelectorAll('form').forEach(el => el.remove());
+                    
+                    // 4. Remove Action Bars (Like/Share)
+                    document.querySelectorAll('div[role="group"]').forEach(el => el.remove());
+                }""")
+            except:
+                pass
+
             texts: List[str] = []
+
+            # --- EXTRACTION STRATEGY ---
+            
+            # 1. Try Standard Message Container
             try:
-                texts += [t for t in page.locator('div[data-ad-preview="message"]').all_inner_texts() if t and t.strip()]
-            except Exception:
+                # This works for 90% of photo/text posts
+                msgs = page.locator('div[data-ad-preview="message"]')
+                if msgs.count() > 0:
+                    texts.append(msgs.first.inner_text())
+            except:
                 pass
-            try:
-                texts += [t for t in page.locator('div[dir="auto"]').all_inner_texts() if t and t.strip()]
-            except Exception:
-                pass
+
+            # 2. Try Video Description Specifics (If Step 1 Failed)
             if not texts:
-                for container_sel in ['[role="article"]', 'div[role="main"]', 'body']:
-                    try:
-                        container = page.locator(container_sel)
-                        if container.count() > 0:
-                            if container_sel == 'body':
-                                texts.append(container.inner_text())
-                                break
-                            inner = container.locator('p, span, div[dir="auto"]')
-                            try:
-                                parts = inner.all_inner_texts()
-                                parts = [t for t in parts if t and t.strip()]
-                                if parts:
-                                    texts.extend(parts)
-                                    break
-                            except Exception:
-                                joined = container.inner_text()
-                                if joined and joined.strip():
-                                    texts.append(joined)
-                                    break
-                    except Exception:
-                        continue
-            sep = "\n---\n"
-            text_content = sep.join([html_unescape(t.strip()) for t in texts]) if texts else ""
+                try:
+                    # In Watch view, the caption is often in a specific container near the top
+                    # We look for a div that contains "See more" or is usually the description area
+                    # This selector targets the standard container for video descriptions
+                    desc = page.locator('span:has-text("See more")').first
+                    if desc.count() > 0:
+                        # Grab the parent which usually holds the full text
+                        parent = desc.locator('..')
+                        texts.append(parent.inner_text().replace("See more", ""))
+                    else:
+                        # Fallback: Look for the largest text block in the main feed only
+                        main_feed = page.locator('div[data-pagelet="MainFeed"] [role="article"]').first
+                        if main_feed.count() > 0:
+                             texts.append(main_feed.inner_text())
+                except:
+                    pass
+
+            # 3. Last Resort: [role="article"] but FILTERED
+            if not texts:
+                try:
+                    article = page.locator('[role="article"]').first
+                    if article.count() > 0:
+                        raw = article.inner_text()
+                        # Filtering to avoid short UI noise
+                        if len(raw) > 50: 
+                            texts.append(raw)
+                except:
+                    pass
+
+            # --- METADATA ---
             image_url = None
             try:
-                for meta_sel in [
-                    'meta[property="og:image"]',
-                    'meta[name="og:image"]',
-                    'meta[property="og:image:url"]',
-                    'meta[property="og:image:secure_url"]',
-                    'meta[name="twitter:image"]'
-                ]:
-                    try:
-                        m = page.locator(meta_sel).first
-                        if m and m.count() > 0:
-                            raw = m.get_attribute('content')
-                            if raw:
-                                image_url = html_unescape(raw.strip())
-                                break
-                    except Exception:
-                        continue
-            except Exception:
+                image_url = page.locator('meta[property="og:image"]').first.get_attribute('content')
+            except:
                 pass
+
             page_name = None
             try:
-                for meta_sel in [
-                    'meta[property="og:site_name"]',
-                    'meta[name="og:site_name"]',
-                    'meta[property="og:title"]',
-                    'meta[name="og:title"]'
-                ]:
-                    m = page.locator(meta_sel).first
-                    if m and m.count() > 0:
-                        raw = m.get_attribute('content')
-                        if raw:
-                            page_name = html_unescape(raw.strip())
-                            break
-                if not page_name:
-                    try:
-                        page_name = html_unescape((page.title() or '').strip())
-                    except Exception:
-                        pass
-            except Exception:
+                raw_title = page.locator('meta[property="og:title"]').first.get_attribute('content')
+                page_name = raw_title.split('|')[0].strip() if raw_title else None
+            except:
                 pass
-            try:
-                browser.close()
-            except Exception:
-                pass
-            text_content = re.sub(r"\s+\n", "\n", (text_content or "")).strip()
-            return {"text": text_content, "image_url": image_url, "page_name": page_name}
+
+            browser.close()
+            
+            # Clean Text
+            final_text = "\n".join(texts).strip()
+            final_text = re.sub(r"(Like|Reply|Share|View more comments|Most relevant|Write a comment)", "", final_text, flags=re.IGNORECASE).strip()
+            final_text = re.sub(r"\s+\n", "\n", final_text).strip()
+
+            # Prevent empty return if possible
+            if not final_text and page_name:
+                final_text = f"Video post by {page_name}"
+
+            return {"text": final_text[:3000], "image_url": image_url, "page_name": page_name}
+
     except Exception as e:
         print(f"Playwright scrape failed: {e}")
         return {"text": "", "image_url": None, "page_name": None}
+
 
 
 def extract_claims_from_url(url):
@@ -1298,42 +1366,33 @@ def fact_check_endpoint():
                 zyla_seed_text = build_claim_from_url_slug(url)
 
     zyla_safe_input = build_zyla_safe_input(zyla_seed_text)
-    if not zyla_safe_input:
-        try:
-            if primary_statement and len(primary_statement.strip()) > 10:
-                zyla_safe_input = build_zyla_safe_input(primary_statement)
-            elif url:
-                zyla_safe_input = build_zyla_safe_input(build_claim_from_url_slug(url))
-        except Exception:
-            pass
+    
+    # [FIX] Truncate input to 800 chars to prevent GET request failures
+    if zyla_safe_input and len(zyla_safe_input) > 800:
+        zyla_safe_input = zyla_safe_input[:800]
 
-    if url and not final_image_url:
-        try:
-            html_text = fetch_url_content(url)
-            final_image_url = _extract_og_image(html_text)
-        except Exception:
-            final_image_url = None
-    if url and not final_source_name:
-        try:
-            final_source_name = _credible_source_name(url)
-        except Exception:
-            final_source_name = _extract_domain(url or '')
+    # [ ... existing setup ... ]
 
     zyla = {}
     zyla_call_attempted = False
     
     if ZYLA_ENABLED and len(zyla_safe_input or "") > 5:
+        # [FIX] Skip Zyla if the input is just generic placeholders
         lower_in = (zyla_safe_input or '').lower()
-        generic_markers = (
-            'needs verification',
-            'context from',
-            'facebook post'
-        )
-        skip_placeholder = any(m in lower_in for m in generic_markers)
-        if not skip_placeholder:
+        generic_markers = ('needs verification', 'context from', 'facebook post')
+        
+        # Only skip if it's EXACTLY a placeholder, not if it contains one + real text
+        if lower_in in generic_markers: 
+            print("Skipping Zyla: Input is generic placeholder")
+        else:
             zyla_call_attempted = True
             zyla_raw = query_zyla_fact_check(zyla_safe_input)
             zyla = parse_zyla_response(zyla_raw)
+            
+            # [FIX] Emergency Fallback: If parser returned None but we see keys in raw data
+            if not zyla.get('verdict') and isinstance(zyla_raw, dict):
+                 if 'fact_check' in zyla_raw:
+                     zyla['verdict'] = str(zyla_raw['fact_check']).lower()
 
     domain_boost = 0.0
     if url:
@@ -1349,55 +1408,59 @@ def fact_check_endpoint():
     fake_claims = []
     real_claims = []
 
-    if zyla.get('verdict') in {'true', 'false', 'partially_true'}:
-        rating_text = 'Partially True' if zyla['verdict'] == 'partially_true' else zyla['verdict'].title()
+    # ... inside fact_check_endpoint ...
+
+    # [CHANGE 1] Allow 'unverified' and 'neutral' in the allowed verdicts
+    if zyla.get('verdict') in {'true', 'false', 'partially_true', 'unverified', 'neutral', 'info'}:
+        
+        rating_raw = zyla['verdict']
+        rating_text = rating_raw.title()
+        if rating_raw == 'partially_true': rating_text = 'Partially True'
+        if rating_raw == 'true': rating_text = 'True' # Fix title case
+        
         info = {
             'claim': zyla.get('claim') or zyla_safe_input or primary_statement,
             'rating': rating_text,
             'reviewer': 'Zyla Labs',
             'title': 'Real-time Fact Check',
-            'url': zyla.get('sources')[0] if zyla.get('sources') else None,
+            'url': (zyla.get('sources') or [None])[0],
             'reviewDate': None,
             'explanation': (zyla.get('explanation') or zyla.get('analysis') or f"Verdict: {rating_text}"),
             'source': 'zyla'
         }
+        
         claim_analysis.append(info)
         fact_checks_count += 1
-        for s in zyla.get('sources') or []:
-            sources_set.add(s)
-
-        conf_val = zyla.get('confidence')
-        if isinstance(conf_val, (int, float)):
-            conf_val = float(conf_val)
-        else:
-            conf_val = 1.0
-
-        if zyla['verdict'] == 'true':
+        
+        # Logic to append score
+        conf_val = zyla.get('confidence', 1.0)
+        
+        if rating_raw == 'true':
             real_claims.append(info)
-            scores.append(max(0.8, conf_val))
-        elif zyla['verdict'] == 'false':
-            # --- LOGIC FIX: Check for Credible Bypass FIRST ---
+            scores.append(max(0.85, float(conf_val)))
+        elif rating_raw == 'false':
+            # ... existing credible bypass logic ...
             try:
                 bz = _credible_boost_for_url(url)
             except Exception:
                 bz = 0.0
             
             if bz > 0:
-                # BYPASS ACTIVE: Source is credible, ignore Zyla false positive.
-                # Set Score to 0.74 (Mixed/High-Mixed) so it doesn't cross into "Credible" (0.75+)
-                # IMPORTANT: Do NOT add to fake_claims, so 'has_negative_evidence' stays False.
-                
                 info['explanation'] = f"Verified source: {final_source_name or 'Source'}. Inaccurate Zyla false verdict bypassed."
-                real_claims.append(info) # Treat as real/neutral for UI purposes
+                real_claims.append(info) 
                 explanations.insert(0, f"Verified source: {final_source_name or 'Source'}. Inaccurate Zyla false verdict bypassed.")
                 scores.append(0.74) 
             else:
-                # GENUINE FAKE: No credible boost found
                 fake_claims.append(info)
                 scores.append(max(0.0, 1.0 - conf_val))
-        else:
+        elif rating_raw == 'partially_true':
             real_claims.append(info)
             scores.append(0.65)
+        else:
+            # [CHANGE 2] Handle Unverified/Neutral verdict without affecting the score drastically
+            # We don't add to real_claims or fake_claims, just claim_analysis
+            # We append a neutral score (0.5) so it doesn't skew the average too much
+            scores.append(0.5)
         
         if zyla.get('explanation'):
             try:
@@ -1654,5 +1717,6 @@ def resolve_facebook_share():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
+
 
 
