@@ -24,7 +24,14 @@ except ImportError:
 
 
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=False)
+allowed_origins = [
+    "https://credinews-frontend.vercel.app",
+    "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
+    "https://credinews-frontend-ixxdtmj23-mhace-mojicas-projects.vercel.app",
+    "http://localhost:5001" 
+]
+
+CORS(app, resources={r"/api/*": {"origins": allowed_origins}}, supports_credentials=False)
 
 
 def _load_env_var(key: str, default: str = "") -> str:
