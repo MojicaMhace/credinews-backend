@@ -1258,21 +1258,25 @@ def calculate_credibility_score(fact_check_results):
 @app.route('/api/fact-check', methods=['POST'])
 def fact_check_endpoint():
     data = request.json
-    if not data or 'title' not in data or 'content' not in data:
+    if not data:
         return jsonify({
             'status': 'error',
-            'message': 'Missing required fields: title and content'
+            'message': 'Missing required fields'
         }), 400
-    
-    title = data['title']
-    content = data['content']
+
+    title = data.get('title', '')
+    content = data.get('content', '')
     url = data.get('url')
+
+    if not content and not title and not url:
+        return jsonify({
+            'status': 'error',
+            'message': 'Missing required fields: title, content, or url'
+        }), 400
+
     final_image_url = None
     final_source_name = None
     scraped_text_out: Optional[str] = None
-    
-    # ... [Keep your existing URL resolution and Claim Extraction logic] ...
-    # (Lines 870 to 980 in your original file remain identical)
     
     if url and 'facebook.com/share/' in url:
         resolved = extract_real_fb_url(url)
