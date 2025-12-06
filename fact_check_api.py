@@ -44,7 +44,7 @@ FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
 FACT_CHECK_API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
 
 # Zyla Labs Configuration
-ZYLA_API_URL = os.environ.get("ZYLA_API_URL", "https://zylalabs.com/api/2753/fact+checking+api/2860/check+facts")
+ZYLA_API_URL = os.environ.get("ZYLA_API_URL")
 ZYLA_API_KEY = os.environ.get("ZYLA_API_KEY")
 
 # FORCE ENABLED FOR PRESENTATION
@@ -945,6 +945,35 @@ def fetch_url_content(url):
         print(f"Fetch URL error: {e}")
     return None
 
+def fetch_metadata_fallback(url: str) -> Dict[str, Optional[str]]:
+    """Extracts title, description, and image using simple HTTP requests (No Browser)."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200: return {}
+        
+        html_text = resp.text
+        
+        # Extract OG Image
+        img_match = re.search(r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+        image_url = img_match.group(1) if img_match else None
+        
+        # Extract Description/Text
+        desc_match = re.search(r'<meta\s+property=["\']og:description["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+        text = desc_match.group(1) if desc_match else None
+        
+        if not text:
+            title_match = re.search(r'<title>(.*?)</title>', html_text, re.IGNORECASE)
+            text = title_match.group(1) if title_match else ""
+
+        # Unescape HTML entities (e.g. &amp; -> &)
+        return {
+            "text": html.unescape(text or ""), 
+            "image_url": html.unescape(image_url or "")
+        }
+    except Exception as e:
+        print(f"Fallback scrape failed: {e}")
+        return {}
 
 def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
     """
@@ -1721,6 +1750,5 @@ def resolve_facebook_share():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-
 
 
