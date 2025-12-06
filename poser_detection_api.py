@@ -979,7 +979,14 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
     if followers <= 0: missing_fields.append("followers_count")
     if posts_count <= 0: missing_fields.append("recent_posts")
     
-    sparse_env_flags = bool(meta.get("_permissions_restricted")) or bool(meta.get("_apify_failed"))
+    # --- UPDATED LOGIC FOR AVAILABILITY ---
+    graph_restricted = bool(meta.get("_permissions_restricted"))
+    # Apify succeeded if fallback was used AND it didn't explicitly fail
+    apify_success = bool(meta.get("_apify_fallback_used")) and not bool(meta.get("_apify_failed"))
+    
+    # Only flag environment as sparse if Graph was restricted AND Apify didn't save us
+    sparse_env_flags = graph_restricted and not apify_success
+
     if len(missing_fields) >= 4 or sparse_env_flags:
         data_availability = "sparse"
     elif len(missing_fields) >= 2:
