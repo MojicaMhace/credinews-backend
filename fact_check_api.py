@@ -44,7 +44,7 @@ FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
 FACT_CHECK_API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
 
 # Zyla Labs Configuration
-ZYLA_API_URL = os.environ.get("ZYLA_API_URL", "https://zylalabs.com/api/2753/fact+checking+api/2860/check+facts")
+ZYLA_API_URL = os.environ.get("ZYLA_API_URL")
 ZYLA_API_KEY = os.environ.get("ZYLA_API_KEY")
 
 # FORCE ENABLED FOR PRESENTATION
@@ -1721,6 +1721,5 @@ def resolve_facebook_share():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-
 
 
