@@ -1,0 +1,11 @@
+# File: Dockerfile.poser
+FROM mcr.microsoft.com/playwright/python:v1.49.1-jammy
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+ENV PORT=10000
+EXPOSE $PORT
+
+# COMMAND FOR POSER DETECTION
+CMD gunicorn poser_detection_api:app --bind 0.0.0.0:$PORT
