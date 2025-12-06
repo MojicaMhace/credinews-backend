@@ -945,6 +945,35 @@ def fetch_url_content(url):
         print(f"Fetch URL error: {e}")
     return None
 
+def fetch_metadata_fallback(url: str) -> Dict[str, Optional[str]]:
+    """Extracts title, description, and image using simple HTTP requests (No Browser)."""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+        resp = requests.get(url, headers=headers, timeout=5)
+        if resp.status_code != 200: return {}
+        
+        html_text = resp.text
+        
+        # Extract OG Image
+        img_match = re.search(r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+        image_url = img_match.group(1) if img_match else None
+        
+        # Extract Description/Text
+        desc_match = re.search(r'<meta\s+property=["\']og:description["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
+        text = desc_match.group(1) if desc_match else None
+        
+        if not text:
+            title_match = re.search(r'<title>(.*?)</title>', html_text, re.IGNORECASE)
+            text = title_match.group(1) if title_match else ""
+
+        # Unescape HTML entities (e.g. &amp; -> &)
+        return {
+            "text": html.unescape(text or ""), 
+            "image_url": html.unescape(image_url or "")
+        }
+    except Exception as e:
+        print(f"Fallback scrape failed: {e}")
+        return {}
 
 def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
     """
