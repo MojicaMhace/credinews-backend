@@ -23,7 +23,8 @@ except ImportError:
     print("Warning: 'groq' library not installed. AI Agent disabled.")
     Groq = None
 
-
+# === FIX: APPLICATION DEFINITION GOES HERE ===
+app = Flask(__name__)
 
 CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGINS")
 
@@ -31,7 +32,7 @@ DEFAULT_ALLOWED_ORIGINS = [
     "https://credinews-frontend.vercel.app",
     "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
     "https://credinews-frontend-ixxdtmj23-mhace-mojicas-projects.vercel.app",
-    "http://localhost:5001", # Added Fact Check API URL
+    "http://localhost:5001",
 ]
 
 # Process the origins list
@@ -41,7 +42,7 @@ else:
     allowed_origins = DEFAULT_ALLOWED_ORIGINS
 
 CORS(
-    app,
+    app, # This call now correctly uses the 'app' defined above
     resources={
         r"/api/*": {
             "origins": allowed_origins,
