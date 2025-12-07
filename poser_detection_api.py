@@ -31,8 +31,7 @@ DEFAULT_ALLOWED_ORIGINS = [
     "https://credinews-frontend.vercel.app",
     "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
     "https://credinews-frontend-ixxdtmj23-mhace-mojicas-projects.vercel.app",
-    "http://localhost:5001",
-    "https://credinews-fact-check-api.onrender.com" # Added Fact Check API URL
+    "http://localhost:5001", # Added Fact Check API URL
 ]
 
 # Process the origins list
