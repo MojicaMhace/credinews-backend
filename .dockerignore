@@ -1,2 +1,14 @@
-fly.toml
+# Files to be excluded from the Docker build context
+.git
+.gitignore
+.gitattributes
+
+# Secrets and local environment files (CRITICAL)
+.env
+serviceAccountKey.json 
+
+# Python and system artifacts
+__pycache__/
+*.pyc
 .venv
+fly.toml

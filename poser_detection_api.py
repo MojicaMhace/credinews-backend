@@ -46,18 +46,10 @@ CORS(
 
 
 def _load_env_var(key: str, default: str = "") -> str:
+    # --- SECURITY FIX: All local file parsing logic has been removed.
+    # The application must ONLY read from system environment variables in deployment.
     v = os.getenv(key)
     if v: return v
-    try:
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or '=' not in line: continue
-                    k, val = line.split("=", 1)
-                    if k.strip() == key: return val.strip().strip('"').strip("'").strip('`')
-    except Exception: pass
     return default
 
 
@@ -115,6 +107,7 @@ if not firebase_admin._apps:
         import json
         # 1. Try to load from Environment Variable (For Render/Deployment)
         firebase_creds_str = os.getenv("FIREBASE_CREDENTIALS")
+        cred = None # Added for scope
         
         if firebase_creds_str:
             # Parse the string back into a dictionary
@@ -123,15 +116,10 @@ if not firebase_admin._apps:
             print("Connected to CrediNews Firebase (via Env Var)!")
         else:
             # 2. Fallback to local file (For Local Testing)
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            key_path = os.path.join(base_path, "serviceAccountKey.json")
-            if os.path.exists(key_path):
-                cred = credentials.Certificate(key_path)
-                print("Connected to CrediNews Firebase (via File)!")
-            else:
-                # If neither exists, we can't connect
-                print("WARNING: No Firebase credentials found.")
-                cred = None
+            # --- SECURITY FIX: Removed local file fallback. Must use ENV variable FIREBASE_CREDENTIALS.
+            # If neither exists, we can't connect
+            print("WARNING: No Firebase credentials found in environment variables.")
+            cred = None
 
         if cred:
             firebase_admin.initialize_app(cred)
@@ -973,18 +961,6 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
             layer2 += 20 # Real brand = Trust Boost
         else:
             layer2 -= 40 # Fake brand = Immediate "Scam" flag
-
-
-    # --- LAYER 3: ACTIVITY (The "Pulse") ---
-    if posts_count > 0: layer3 += 10
-    
-    # Consistency Bonus
-    if posts_count >= 5:
-        if followers >= 10000: layer3 += 10 # High activity + High reach = Trust
-        elif followers < 500: layer3 += 5  # Just an active normal person
-    
-    # Add external spam scores (if using tools like Apify spam check)
-    layer3 += meta.get("spam_score", 0)
 
 
     # --- NEUTRALIZE PENALTIES IF ENVIRONMENT IS SPARSE ---
