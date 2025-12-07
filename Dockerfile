@@ -9,3 +9,4 @@ COPY . .
 ENV PORT=10000
 EXPOSE $PORT
 CMD gunicorn fact_check_api:app --bind 0.0.0.0:$PORT --timeout 120
+CMD gunicorn poser_detection_api:app --bind 0.0.0.0:$PORT --timeout 120
