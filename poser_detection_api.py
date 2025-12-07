@@ -53,6 +53,21 @@ CORS(
     supports_credentials=False,
 )
 
+@app.after_request
+def _add_cors_headers(resp):
+    try:
+        origin = request.headers.get("Origin")
+        if origin and origin in allowed_origins and str(request.path or "").startswith("/api/"):
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Vary"] = "Origin"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
+        return resp
+    except Exception:
+        return resp
+
+_CORS_HOOK = _add_cors_headers
+
 def _load_env_var(key: str, default: str = "") -> str:
     # --- SECURITY FIX: All local file parsing logic has been removed.
     # The application must ONLY read from system environment variables in deployment.
@@ -1516,6 +1531,10 @@ def poser_analyze_full():
 
 
     return jsonify(res)
+
+@app.route("/api/poser/analyze_full", methods=["OPTIONS"])
+def poser_analyze_full_options():
+    return ("", 204)
 
 
 def _extract_hostname(u: Optional[str]) -> Optional[str]:

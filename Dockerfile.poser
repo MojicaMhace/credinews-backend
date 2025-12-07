@@ -9,4 +9,4 @@ EXPOSE $PORT
 
 # COMMAND FOR POSER DETECTION: Added worker count and timeout for stability
 # The --workers 3 is a recommendation (2*CPU + 1 is a common rule)
-CMD gunicorn poser_detection_api:app --bind 0.0.0.0:$PORT --timeout 120 --workers 3
+CMD gunicorn poser_detection_api:app --bind 0.0.0.0:$PORT --timeout 120
