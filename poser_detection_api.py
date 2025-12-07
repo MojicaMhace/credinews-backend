@@ -24,13 +24,22 @@ except ImportError:
     Groq = None
 
 
-app = Flask(__name__)
-allowed_origins = [
+
+CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGINS")
+
+DEFAULT_ALLOWED_ORIGINS = [
     "https://credinews-frontend.vercel.app",
     "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
     "https://credinews-frontend-ixxdtmj23-mhace-mojicas-projects.vercel.app",
-    "http://localhost:5001" 
+    "http://localhost:5001",
+    "https://credinews-fact-check-api.onrender.com" # Added Fact Check API URL
 ]
+
+# Process the origins list
+if CORS_ORIGINS_ENV:
+    allowed_origins = [url.strip() for url in CORS_ORIGINS_ENV.split(',') if url.strip()]
+else:
+    allowed_origins = DEFAULT_ALLOWED_ORIGINS
 
 CORS(
     app,
@@ -43,7 +52,6 @@ CORS(
     },
     supports_credentials=False,
 )
-
 
 def _load_env_var(key: str, default: str = "") -> str:
     # --- SECURITY FIX: All local file parsing logic has been removed.
