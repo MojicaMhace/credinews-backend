@@ -29,7 +29,8 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-CORS(app)
+cors_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*").split(",")
+CORS(app, origins=cors_origins)
 
 @app.route('/')
 def index():
@@ -1770,4 +1771,5 @@ def resolve_facebook_share():
         return jsonify({"resolved_url": None, "page_url": None, "error": str(e)}), 200
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
