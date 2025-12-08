@@ -23,17 +23,26 @@ except ImportError:
     print("Warning: 'groq' library not installed. AI Agent disabled.")
     Groq = None
 
-
+# === FIX: APPLICATION DEFINITION GOES HERE ===
 app = Flask(__name__)
-allowed_origins = [
+
+CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGINS")
+
+DEFAULT_ALLOWED_ORIGINS = [
     "https://credinews-frontend.vercel.app",
     "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
     "https://credinews-frontend-ixxdtmj23-mhace-mojicas-projects.vercel.app",
-    "http://localhost:5001" 
+    "http://localhost:5001",
 ]
 
+# Process the origins list
+if CORS_ORIGINS_ENV:
+    allowed_origins = [url.strip() for url in CORS_ORIGINS_ENV.split(',') if url.strip()]
+else:
+    allowed_origins = DEFAULT_ALLOWED_ORIGINS
+
 CORS(
-    app,
+    app, # This call now correctly uses the 'app' defined above
     resources={
         r"/api/*": {
             "origins": allowed_origins,
@@ -44,32 +53,44 @@ CORS(
     supports_credentials=False,
 )
 
+@app.after_request
+def _add_cors_headers(resp):
+    try:
+        origin = request.headers.get("Origin")
+        if origin and origin in allowed_origins and str(request.path or "").startswith("/api/"):
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Vary"] = "Origin"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
+        return resp
+    except Exception:
+        return resp
+
+_CORS_HOOK = _add_cors_headers
 
 def _load_env_var(key: str, default: str = "") -> str:
+    # --- SECURITY FIX: All local file parsing logic has been removed.
+    # The application must ONLY read from system environment variables in deployment.
     v = os.getenv(key)
     if v: return v
-    try:
-        env_path = os.path.join(os.path.dirname(__file__), ".env")
-        if os.path.exists(env_path):
-            with open(env_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line or line.startswith("#") or '=' not in line: continue
-                    k, val = line.split("=", 1)
-                    if k.strip() == key: return val.strip().strip('"').strip("'").strip('`')
-    except Exception: pass
     return default
 
 
 load_dotenv()
 
+def _sanitize_env_val(v: Optional[str]) -> str:
+    try:
+        return str(v or "").strip().strip('`').strip('"').strip("'")
+    except Exception:
+        return str(v or "")
 
-APIFY_TOKEN = (os.getenv("APIFY_TOKEN") or os.getenv("APIFY_API_TOKEN") or _load_env_var("APIFY_TOKEN"))
-META_GRAPH_TOKEN = _load_env_var("META_GRAPH_TOKEN")
-GRAPH_BASE_URL = (_load_env_var("GRAPH_BASE_URL", "https://graph.facebook.com/v24.0") or "https://graph.facebook.com/v24.0").strip().strip('`')
-META_APP_ID = _load_env_var("META_APP_ID")
-META_APP_SECRET = _load_env_var("META_APP_SECRET")
-POSER_ADMIN_SECRET = _load_env_var("POSER_ADMIN_SECRET")
+
+APIFY_TOKEN = _sanitize_env_val(os.getenv("APIFY_TOKEN") or os.getenv("APIFY_API_TOKEN") or _load_env_var("APIFY_TOKEN"))
+META_GRAPH_TOKEN = _sanitize_env_val(_load_env_var("META_GRAPH_TOKEN"))
+GRAPH_BASE_URL = _sanitize_env_val(_load_env_var("GRAPH_BASE_URL", "https://graph.facebook.com/v24.0") or "https://graph.facebook.com/v24.0")
+META_APP_ID = _sanitize_env_val(_load_env_var("META_APP_ID"))
+META_APP_SECRET = _sanitize_env_val(_load_env_var("META_APP_SECRET"))
+POSER_ADMIN_SECRET = _sanitize_env_val(_load_env_var("POSER_ADMIN_SECRET"))
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 POSER_LOG_COLLECTION = _load_env_var("POSER_LOG_COLLECTION", "poser_detections")
 FORCE_APIFY = str(_load_env_var("FORCE_APIFY", "False")).strip().lower() in ("true","1","yes","y")
@@ -109,6 +130,7 @@ if not firebase_admin._apps:
         import json
         # 1. Try to load from Environment Variable (For Render/Deployment)
         firebase_creds_str = os.getenv("FIREBASE_CREDENTIALS")
+        cred = None # Added for scope
         
         if firebase_creds_str:
             # Parse the string back into a dictionary
@@ -117,15 +139,10 @@ if not firebase_admin._apps:
             print("Connected to CrediNews Firebase (via Env Var)!")
         else:
             # 2. Fallback to local file (For Local Testing)
-            base_path = os.path.dirname(os.path.abspath(__file__))
-            key_path = os.path.join(base_path, "serviceAccountKey.json")
-            if os.path.exists(key_path):
-                cred = credentials.Certificate(key_path)
-                print("Connected to CrediNews Firebase (via File)!")
-            else:
-                # If neither exists, we can't connect
-                print("WARNING: No Firebase credentials found.")
-                cred = None
+            # --- SECURITY FIX: Removed local file fallback. Must use ENV variable FIREBASE_CREDENTIALS.
+            # If neither exists, we can't connect
+            print("WARNING: No Firebase credentials found in environment variables.")
+            cred = None
 
         if cred:
             firebase_admin.initialize_app(cred)
@@ -300,13 +317,30 @@ def _has_graph_error(obj: Any) -> bool:
 
 
 def _debug_token_info(access_token: str) -> Dict[str, Any]:
-    if not access_token or not META_APP_ID or not META_APP_SECRET: return {}
+    if not access_token or not META_APP_ID or not META_APP_SECRET:
+        return {}
     try:
         app_token = f"{META_APP_ID}|{META_APP_SECRET}"
-        resp = requests.get(f"{GRAPH_BASE_URL}/debug_token", params={"input_token": access_token, "access_token": app_token}, timeout=10)
-        data = resp.json().get("data") if resp.status_code == 200 else {}
-        return {"is_valid": bool(data.get("is_valid"))}
-    except Exception: return {}
+        resp = requests.get(
+            f"{GRAPH_BASE_URL}/debug_token",
+            params={"input_token": access_token, "access_token": app_token},
+            timeout=10,
+        )
+        if resp.status_code != 200:
+            return {"is_valid": False}
+        payload = resp.json() or {}
+        data = payload.get("data") or {}
+        is_valid = bool(data.get("is_valid"))
+        expires_at = data.get("expires_at")
+        expires_in_days = None
+        try:
+            if isinstance(expires_at, (int, float)):
+                expires_in_days = max(0, int((expires_at - time.time()) / 86400))
+        except Exception:
+            expires_in_days = None
+        return {"is_valid": is_valid, "expires_in_days": expires_in_days}
+    except Exception:
+        return {"is_valid": False}
 
 
 def _apify_health() -> Dict[str, Any]:
@@ -375,6 +409,34 @@ def _resolve_fb_share_url(share_url: str) -> Optional[str]:
     except Exception:
         return None
 
+
+def _scrape_public_fb_metatags(page_url: str) -> Dict[str, Any]:
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36"}
+        r = requests.get(page_url, timeout=10, headers=headers)
+        if r.status_code != 200:
+            return {}
+        html = r.text or ""
+        def _meta(prop: str) -> Optional[str]:
+            m = re.search(rf'<meta[^>]+property=["\']{prop}["\'][^>]+content=["\']([^"\']+)["\']', html, re.IGNORECASE)
+            return m.group(1) if m else None
+        title = _meta("og:title") or _meta("og:site_name")
+        img = _meta("og:image")
+        pid = None
+        m_id = re.search(r'"entity_id"\s*:\s*"?(\d+)"?', html, re.IGNORECASE)
+        if m_id:
+            pid = m_id.group(1)
+        return {
+            "id": pid,
+            "name": title,
+            "picture": {"data": {"url": img, "is_silhouette": not bool(img)}},
+            "cover": {"source": None},
+            "recent_posts_count": 0,
+            "resource_type": "page",
+            "_source": "public_html"
+        }
+    except Exception:
+        return {}
 
 def _normalize_to_page_url(u: str) -> str:
     try:
@@ -874,14 +936,16 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
 }
 
 
+    # --- ENVIRONMENT SPARSITY CHECK (before penalties) ---
+    graph_restricted_pre = bool(meta.get("_permissions_restricted"))
+    apify_success_pre = bool(meta.get("_apify_fallback_used")) and not bool(meta.get("_apify_failed"))
+    env_sparse = graph_restricted_pre and not apify_success_pre
+
     # --- LAYER 1: VISUALS (The "Bare Minimum") ---
-    # Reduced rewards. too high for having profile so we need to reduce it so we came up with 5 only
-    if has_pic: layer1 += 5  
-    else: layer1 -= 25        # Huge penalty for being a "Ghost" because having a no profile but lot of posing can be a one big factor of being a poser
-    
+    if has_pic: layer1 += 5
+    else: layer1 -= 25
     if has_cover: layer1 += 3
     else: layer1 -= 5
-    
     if (meta.get("about") or meta.get("description")): layer1 += 5
 
 
@@ -902,7 +966,7 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
     elif followers >= 100000: layer2 += 10
     elif followers >= 10000: layer2 += 7
     elif followers >= 1000: layer2 += 3
-    elif followers < 100: layer2 -= 10 # New accounts are risky
+    elif followers < 100: layer2 -= 10
 
 
     # Ghost town work were if it has many followers but 0 posts, it is likely a ghost account
@@ -922,20 +986,17 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
             layer2 -= 40 # Fake brand = Immediate "Scam" flag
 
 
-    # --- LAYER 3: ACTIVITY (The "Pulse") ---
-    if posts_count > 0: layer3 += 10
-    
-    # Consistency Bonus
-    if posts_count >= 5:
-        if followers >= 10000: layer3 += 10 # High activity + High reach = Trust
-        elif followers < 500: layer3 += 5  # Just an active normal person
-    
-    # Add external spam scores (if using tools like Apify spam check)
-    layer3 += meta.get("spam_score", 0)
-
+    # --- NEUTRALIZE PENALTIES IF ENVIRONMENT IS SPARSE ---
+    if env_sparse:
+        if not has_pic: layer1 += 25
+        if not has_cover: layer1 += 5
+        if followers < 100: layer2 += 10
+        if followers > 5000 and posts_count == 0: layer2 += 30
 
     # --- FINAL CALCULATION ---
     rule_score_raw = max(0, min(100, base + layer1 + layer2 + layer3))
+    if env_sparse:
+        rule_score_raw = max(rule_score_raw, 50)
 
 
     #THE "GLASS CEILING" (Cap Unverified Accounts)
@@ -979,7 +1040,11 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
     if followers <= 0: missing_fields.append("followers_count")
     if posts_count <= 0: missing_fields.append("recent_posts")
     
-    sparse_env_flags = bool(meta.get("_permissions_restricted")) or bool(meta.get("_apify_failed"))
+    # --- UPDATED LOGIC FOR AVAILABILITY ---
+    graph_restricted = graph_restricted_pre
+    apify_success = apify_success_pre
+    sparse_env_flags = env_sparse
+
     if len(missing_fields) >= 4 or sparse_env_flags:
         data_availability = "sparse"
     elif len(missing_fields) >= 2:
@@ -1022,9 +1087,10 @@ def build_response(url: str, meta: Dict[str, Any], score: Dict[str, Any], resolv
     # Extract AI data safely
     ai_risk = score.get("layers", {}).get("ai_risk", 50)
     ai_reason = score.get("ai_analysis") or "AI Analysis Pending"
-    ai_rationale = ""
     availability = score.get("layers", {}).get("data_availability", "complete")
     missing = score.get("layers", {}).get("missing_fields", [])
+    if availability == "sparse":
+        missing = []
     availability_note = (
         "Data unavailable for public signals; verdict blends AI with limited metadata."
         if availability == "sparse" else (
@@ -1073,6 +1139,7 @@ def build_response(url: str, meta: Dict[str, Any], score: Dict[str, Any], resolv
             "safety_threshold_met": score.get("meets_safety_threshold"),
             "data_availability": availability,
             "availability_note": availability_note,
+            "ai_agent": {"score": score.get("layers", {}).get("ai_risk"), "explanation": ai_reason},
             
             #"Why - explain "
             "breakdown": {
@@ -1317,7 +1384,12 @@ def poser_analyze_full():
 
 
                 if existing_data.get("analysis"):
-                    return jsonify(existing_data["analysis"])
+                    an = existing_data.get("analysis") or {}
+                    bd = (an.get("breakdown") or {})
+                    has_ai = bool(bd.get("ai_explanation")) or (bd.get("ai_score") is not None)
+                    availability = str((an.get("data_availability") or "").strip().lower())
+                    if has_ai and availability != "sparse":
+                        return jsonify(an)
                 if existing_data.get("classification"):
                     return jsonify(existing_data)
         except Exception:
@@ -1385,6 +1457,21 @@ def poser_analyze_full():
                     meta["_apify_failed"] = True
                 except Exception:
                     pass
+                # Last-ditch fallback: scrape public meta tags
+                try:
+                    mt = _scrape_public_fb_metatags(base_page_url)
+                    if mt:
+                        for k in ["id","name","picture","cover","recent_posts_count","resource_type"]:
+                            if mt.get(k) is not None and not meta.get(k):
+                                meta[k] = mt.get(k)
+                        if not meta.get("username"):
+                            meta["username"] = extract_fbid(base_page_url)
+                        if not meta.get("link"):
+                            meta["link"] = base_page_url
+                    else:
+                        meta.setdefault("link", base_page_url)
+                except Exception:
+                    meta.setdefault("link", base_page_url)
 
 
     try:
@@ -1444,6 +1531,10 @@ def poser_analyze_full():
 
 
     return jsonify(res)
+
+@app.route("/api/poser/analyze_full", methods=["OPTIONS"])
+def poser_analyze_full_options():
+    return ("", 204)
 
 
 def _extract_hostname(u: Optional[str]) -> Optional[str]:

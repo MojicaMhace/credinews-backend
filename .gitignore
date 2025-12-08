@@ -1,0 +1,4 @@
+# Ignore configuration and temporary files
+.env
+serviceAccountKey.json
+__pycache__/
