@@ -140,43 +140,80 @@ CREDIBLE_WEBSITES: Dict[str, Dict[str, Any]] = {
 # Regex explains: Matches explicit verified handles to avoid fan pages
 # Combined List for Social Patterns
 CREDIBLE_SOCIAL_PATTERNS: List[Dict[str, Any]] = [
-    # --- PHILIPPINES: Facebook Handles ---
-    {'pattern': r"facebook\.com/(rapplerdotcom|rappler)", 'score': 0.25, 'name': 'Rappler (Facebook)'},
-    {'pattern': r"facebook\.com/inquirerdotnet",          'score': 0.25, 'name': 'Inquirer.net (Facebook)'},
-    {'pattern': r"facebook\.com/abscbnNEWS",              'score': 0.25, 'name': 'ABS-CBN News (Facebook)'},
-    {'pattern': r"facebook\.com/gmanews",                 'score': 0.25, 'name': 'GMA News (Facebook)'},
-    {'pattern': r"facebook\.com/PhilippineStar",          'score': 0.25, 'name': 'The Philippine Star (Facebook)'},
-    {'pattern': r"facebook\.com/manilabulletin",          'score': 0.25, 'name': 'Manila Bulletin (Facebook)'},
-    {'pattern': r"facebook\.com/BusinessWorldOnline",     'score': 0.25, 'name': 'BusinessWorld (Facebook)'},
-    {'pattern': r"facebook\.com/verafiles",               'score': 0.25, 'name': 'VERA Files (Facebook)'},
-    {'pattern': r"facebook\.com/rapplerlife",             'score': 0.25, 'name': 'Rappler Life (Facebook)'},
-    {'pattern': r"facebook\.com/dilg.philippines",        'score': 0.25, 'name': 'DILG Philippines (Official)'},
+    # --- PHILIPPINES: Government (Executive & Cabinet) ---
+    {'pattern': r"facebook\.com/OfficeOfThePresidentPH",      'score': 0.25, 'name': 'Office of the President (Official)'},
+    {'pattern': r"facebook\.com/pcogovph",                    'score': 0.25, 'name': 'Presidential Comms Office (Official)'},
+    {'pattern': r"facebook\.com/dilg\.philippines",           'score': 0.25, 'name': 'DILG Philippines (Official)'},
+    {'pattern': r"facebook\.com/dfaphl",                      'score': 0.25, 'name': 'DFA (Foreign Affairs)'},
+
+    # --- PHILIPPINES: Government (Social Services) ---
+    {'pattern': r"facebook\.com/(OfficialDOHgov|DepartmentOfHealthPhilippines)", 'score': 0.25, 'name': 'DOH (Health Official)'},
+    {'pattern': r"facebook\.com/DepartmentOfEducation\.PH",   'score': 0.25, 'name': 'DepEd (Education Official)'},
+    {'pattern': r"facebook\.com/dswdserves",                  'score': 0.25, 'name': 'DSWD (Social Welfare Official)'},
+    {'pattern': r"facebook\.com/laborandemployment",          'score': 0.25, 'name': 'DOLE (Labor Official)'},
+    {'pattern': r"facebook\.com/dmw\.gov\.ph",                'score': 0.25, 'name': 'DMW (Migrant Workers Official)'},
+
+    # --- PHILIPPINES: Government (Economic & Infrastructure) ---
+    {'pattern': r"facebook\.com/DepartmentOfFinancePH",       'score': 0.25, 'name': 'DOF (Finance Official)'},
+    {'pattern': r"facebook\.com/BangkoSentralngPilipinas",    'score': 0.25, 'name': 'Bangko Sentral (Central Bank)'},
+    {'pattern': r"facebook\.com/DTI\.Philippines",            'score': 0.25, 'name': 'DTI (Trade & Industry)'},
+    {'pattern': r"facebook\.com/DOTrPH",                      'score': 0.25, 'name': 'DOTr (Transportation)'},
+    {'pattern': r"facebook\.com/dpwhph",                      'score': 0.25, 'name': 'DPWH (Public Works)'},
+    {'pattern': r"facebook\.com/NEDAhq",                      'score': 0.25, 'name': 'NEDA (Economic Authority)'},
+
+    # --- PHILIPPINES: Government (Safety, Science & Disaster) ---
+    {'pattern': r"facebook\.com/PAGASA\.DOST\.GOV\.PH",       'score': 0.25, 'name': 'PAGASA (Weather Official)'},
+    {'pattern': r"facebook\.com/PHIVOLCS",                    'score': 0.25, 'name': 'PHIVOLCS (Volcano/Quake Official)'},
+    {'pattern': r"facebook\.com/civildefensePH",              'score': 0.25, 'name': 'OCD (Civil Defense/Disaster)'},
+    {'pattern': r"facebook\.com/MMDAPH",                      'score': 0.25, 'name': 'MMDA (Metro Manila)'},
+
+    # --- PHILIPPINES: Facebook Handles (Media) ---
+    {'pattern': r"facebook\.com/(rapplerdotcom|rappler)",     'score': 0.25, 'name': 'Rappler (Facebook)'},
+    {'pattern': r"facebook\.com/inquirerdotnet",              'score': 0.25, 'name': 'Inquirer.net (Facebook)'},
+    {'pattern': r"facebook\.com/abscbnNEWS",                  'score': 0.25, 'name': 'ABS-CBN News (Facebook)'},
+    {'pattern': r"facebook\.com/gmanews",                     'score': 0.25, 'name': 'GMA News (Facebook)'},
+    {'pattern': r"facebook\.com/PhilippineStar",              'score': 0.25, 'name': 'The Philippine Star (Facebook)'},
+    {'pattern': r"facebook\.com/manilabulletin",              'score': 0.25, 'name': 'Manila Bulletin (Facebook)'},
+    {'pattern': r"facebook\.com/BusinessWorldOnline",         'score': 0.25, 'name': 'BusinessWorld (Facebook)'},
+    {'pattern': r"facebook\.com/verafiles",                   'score': 0.25, 'name': 'VERA Files (Facebook)'},
+    {'pattern': r"facebook\.com/rapplerlife",                 'score': 0.25, 'name': 'Rappler Life (Facebook)'},
+
+    # --- BIÑAN CITY, LAGUNA: Local Government Unit (LGU) ---
+    {'pattern': r"facebook\.com/CIOBinan",                   'score': 0.25, 'name': 'Biñan City Info Office (Official LGU)'},
+    {'pattern': r"facebook\.com/SerbisyongArman",            'score': 0.25, 'name': 'Mayor Arman Dimaguila (Official)'},
+    {'pattern': r"facebook\.com/TatakGel",                   'score': 0.25, 'name': 'Vice Mayor Gel Alonte (Official)'},
+    {'pattern': r"facebook\.com/LenAlonte",                  'score': 0.25, 'name': 'Rep. Len Alonte (Lone District)'},
+    {'pattern': r"facebook\.com/BinanCityDRRMO",             'score': 0.25, 'name': 'Biñan CDRRMO (Disaster/Rescue)'},
+    {'pattern': r"facebook\.com/BinanCPS",                   'score': 0.25, 'name': 'Biñan City Police Station (PNP)'},
+    {'pattern': r"facebook\.com/POSOBinan",                  'score': 0.25, 'name': 'POSO Biñan (Traffic/Safety)'},
+    {'pattern': r"facebook\.com/BCHOOfficial",               'score': 0.25, 'name': 'Biñan City Health Office (Health)'},
 
     # --- PHILIPPINES: Tier 2 / Regional ---
-    {'pattern': r"facebook\.com/ONENewsPH",               'score': 0.20, 'name': 'One News PH (Facebook)'},
-    {'pattern': r"facebook\.com/News5Everywhere",         'score': 0.20, 'name': 'News5 (Facebook)'},
-    {'pattern': r"facebook\.com/interaksyon",             'score': 0.20, 'name': 'Interaksyon (Facebook)'},
-    {'pattern': r"facebook\.com/sunstarphilippines",      'score': 0.20, 'name': 'SunStar Philippines (Facebook)'},
-    {'pattern': r"facebook\.com/themanilatimesonline",    'score': 0.20, 'name': 'The Manila Times (Facebook)'},
-    {'pattern': r"facebook\.com/mindanews",               'score': 0.20, 'name': 'MindaNews (Facebook)'},
+    {'pattern': r"facebook\.com/ONENewsPH",                   'score': 0.20, 'name': 'One News PH (Facebook)'},
+    {'pattern': r"facebook\.com/News5Everywhere",             'score': 0.20, 'name': 'News5 (Facebook)'},
+    {'pattern': r"facebook\.com/interaksyon",                 'score': 0.20, 'name': 'Interaksyon (Facebook)'},
+    {'pattern': r"facebook\.com/sunstarphilippines",          'score': 0.20, 'name': 'SunStar Philippines (Facebook)'},
+    {'pattern': r"facebook\.com/themanilatimesonline",        'score': 0.20, 'name': 'The Manila Times (Facebook)'},
+    {'pattern': r"facebook\.com/mindanews",                   'score': 0.20, 'name': 'MindaNews (Facebook)'},
+    {'pattern': r"facebook\.com/pia\.gov\.ph",                'score': 0.20, 'name': 'Philippine Information Agency'},
 
     # --- INTERNATIONAL: Wire Services & Global Giants ---
-    {'pattern': r"facebook\.com/Reuters",                 'score': 0.25, 'name': 'Reuters (Facebook)'},
-    {'pattern': r"facebook\.com/APNews",                  'score': 0.25, 'name': 'Associated Press (Facebook)'},
-    {'pattern': r"facebook\.com/AFPnewsenglish",          'score': 0.25, 'name': 'AFP News (Facebook)'},
-    {'pattern': r"facebook\.com/bbcnews",                 'score': 0.25, 'name': 'BBC News (Facebook)'},
-    {'pattern': r"facebook\.com/cnn",                     'score': 0.25, 'name': 'CNN (Facebook)'},
-    {'pattern': r"facebook\.com/nytimes",                 'score': 0.25, 'name': 'New York Times (Facebook)'},
-    {'pattern': r"facebook\.com/washingtonpost",          'score': 0.25, 'name': 'Washington Post (Facebook)'},
-    {'pattern': r"facebook\.com/bloombergbusiness",       'score': 0.25, 'name': 'Bloomberg Business (Facebook)'},
-    {'pattern': r"facebook\.com/aljazeera",               'score': 0.25, 'name': 'Al Jazeera (Facebook)'},
-    {'pattern': r"facebook\.com/dw.deutschewelle",        'score': 0.25, 'name': 'DW Deutsche Welle (Facebook)'},
+    {'pattern': r"facebook\.com/Reuters",                     'score': 0.25, 'name': 'Reuters (Facebook)'},
+    {'pattern': r"facebook\.com/APNews",                      'score': 0.25, 'name': 'Associated Press (Facebook)'},
+    {'pattern': r"facebook\.com/AFPnewsenglish",              'score': 0.25, 'name': 'AFP News (Facebook)'},
+    {'pattern': r"facebook\.com/bbcnews",                     'score': 0.25, 'name': 'BBC News (Facebook)'},
+    {'pattern': r"facebook\.com/cnn",                         'score': 0.25, 'name': 'CNN (Facebook)'},
+    {'pattern': r"facebook\.com/nytimes",                     'score': 0.25, 'name': 'New York Times (Facebook)'},
+    {'pattern': r"facebook\.com/washingtonpost",              'score': 0.25, 'name': 'Washington Post (Facebook)'},
+    {'pattern': r"facebook\.com/bloombergbusiness",           'score': 0.25, 'name': 'Bloomberg Business (Facebook)'},
+    {'pattern': r"facebook\.com/aljazeera",                   'score': 0.25, 'name': 'Al Jazeera (Facebook)'},
+    {'pattern': r"facebook\.com/dw\.deutschewelle",           'score': 0.25, 'name': 'DW Deutsche Welle (Facebook)'},
 
     # --- INTERNATIONAL: Tier 2 ---
-    {'pattern': r"facebook\.com/theguardian",             'score': 0.20, 'name': 'The Guardian (Facebook)'},
-    {'pattern': r"facebook\.com/cnbc",                    'score': 0.20, 'name': 'CNBC (Facebook)'},
-    {'pattern': r"facebook\.com/time",                    'score': 0.20, 'name': 'TIME (Facebook)'},
-    {'pattern': r"facebook\.com/channelnewsasia",         'score': 0.20, 'name': 'CNA (Facebook)'},
+    {'pattern': r"facebook\.com/theguardian",                 'score': 0.20, 'name': 'The Guardian (Facebook)'},
+    {'pattern': r"facebook\.com/cnbc",                        'score': 0.20, 'name': 'CNBC (Facebook)'},
+    {'pattern': r"facebook\.com/time",                        'score': 0.20, 'name': 'TIME (Facebook)'},
+    {'pattern': r"facebook\.com/channelnewsasia",             'score': 0.20, 'name': 'CNA (Facebook)'},
 ]
 
 def _extract_domain(url: str) -> str:
@@ -945,35 +982,6 @@ def fetch_url_content(url):
         print(f"Fetch URL error: {e}")
     return None
 
-def fetch_metadata_fallback(url: str) -> Dict[str, Optional[str]]:
-    """Extracts title, description, and image using simple HTTP requests (No Browser)."""
-    try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        resp = requests.get(url, headers=headers, timeout=5)
-        if resp.status_code != 200: return {}
-        
-        html_text = resp.text
-        
-        # Extract OG Image
-        img_match = re.search(r'<meta\s+property=["\']og:image["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
-        image_url = img_match.group(1) if img_match else None
-        
-        # Extract Description/Text
-        desc_match = re.search(r'<meta\s+property=["\']og:description["\']\s+content=["\']([^"\']+)["\']', html_text, re.IGNORECASE)
-        text = desc_match.group(1) if desc_match else None
-        
-        if not text:
-            title_match = re.search(r'<title>(.*?)</title>', html_text, re.IGNORECASE)
-            text = title_match.group(1) if title_match else ""
-
-        # Unescape HTML entities (e.g. &amp; -> &)
-        return {
-            "text": html.unescape(text or ""), 
-            "image_url": html.unescape(image_url or "")
-        }
-    except Exception as e:
-        print(f"Fallback scrape failed: {e}")
-        return {}
 
 def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
     """
@@ -1287,26 +1295,19 @@ def calculate_credibility_score(fact_check_results):
 @app.route('/api/fact-check', methods=['POST'])
 def fact_check_endpoint():
     data = request.json
-    if not data:
+    if not data or 'title' not in data or 'content' not in data:
         return jsonify({
             'status': 'error',
-            'message': 'Missing required fields'
+            'message': 'Missing required fields: title and content'
         }), 400
-
-    title = data.get('title', '')
-    content = data.get('content', '')
+    
+    title = data['title']
+    content = data['content']
     url = data.get('url')
-
-    if not content and not title and not url:
-        return jsonify({
-            'status': 'error',
-            'message': 'Missing required fields: title, content, or url'
-        }), 400
-
     final_image_url = None
     final_source_name = None
     scraped_text_out: Optional[str] = None
-    
+
     if url and 'facebook.com/share/' in url:
         resolved = extract_real_fb_url(url)
         if resolved:
@@ -1397,6 +1398,26 @@ def fact_check_endpoint():
                     zyla_seed_text = build_claim_from_url_slug(url)
             except Exception:
                 zyla_seed_text = build_claim_from_url_slug(url)
+
+# [FIX] Fallback image fetch if Playwright fails
+    if url and not final_image_url:
+        print(f"Playwright failed to find image. Attempting fallback fetch for: {url}")
+        try:
+            # Use a generic User-Agent that looks like a standard browser but does NOT execute JS
+            fallback_headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+            }
+            # Shorter timeout for fallback
+            r = requests.get(url, headers=fallback_headers, timeout=5)
+            if r.status_code == 200:
+                # Use your existing helper _extract_og_image
+                fallback_img = _extract_og_image(r.text)
+                if fallback_img:
+                    final_image_url = fallback_img
+                    print(f"Fallback image found: {final_image_url}")
+        except Exception as e:
+            print(f"Fallback image fetch failed: {e}")
 
     zyla_safe_input = build_zyla_safe_input(zyla_seed_text)
     
@@ -1750,5 +1771,3 @@ def resolve_facebook_share():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
-
-
