@@ -53,7 +53,6 @@ CORS(
     supports_credentials=False,
 )
 
-# pyright: ignore
 @app.after_request
 def _add_cors_headers(resp):
     try:
@@ -71,7 +70,6 @@ def _add_cors_headers(resp):
     except Exception:
         return resp
 
-# pyright: ignore
 @app.before_request
 def _handle_options_preflight():
     try:
@@ -180,15 +178,8 @@ except Exception:
     db = None
     print(" Firestore client could not be initialized.")
 
-# --- START FIX 1: CANONICAL HASHING ---
 def _get_cache_key(url: str) -> str:
-    clean_url = url.strip().lower()
-    # This prevents hash mismatches between '...PHL' and '...PHL/'
-    if clean_url.endswith('/') and len(clean_url) > 1:
-        clean_url = clean_url.rstrip('/')
-        
-    return hashlib.md5(clean_url.encode('utf-8')).hexdigest()
-# --- END FIX 1 ---
+    return hashlib.md5(url.strip().lower().encode('utf-8')).hexdigest()
 
 
 def _require_admin_secret(data: Optional[Dict[str, Any]] = None) -> bool:
@@ -212,13 +203,21 @@ def _make_cache_key(path: str, params: Optional[Dict[str, Any]]) -> str:
         return f"{path.strip('/')}?" + "&".join([f"{k}={v}" for k, v in items])
     except Exception: return path.strip("/")
 
-# --- START FIX 2: FORCE CANONICAL CANDIDATE ---
+
 def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
     try:
-        if not db: return None
+        if not db: 
+            print("DEBUG: Firestore client (db) is None. Cannot check registry.")
+            return None
+            
         raw = (url or "").strip()
         clean = raw.strip('`').strip('"').strip("'")
         candidates = [clean]
+        
+        # --- DEBUG LINE ADDED ---
+        print(f"DEBUG: Starting registry check for input URL: {raw}")
+        # --- END DEBUG LINE ---
+        
         try:
             from urllib.parse import urlparse
             u = urlparse(clean)
@@ -248,48 +247,59 @@ def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
                     mhost = ('m.' + host) if not host.startswith('m.') else host
                     candidates.extend([
                         f"{scheme}://{mhost}{path}",
-                        f"{scheme}://{mhost}{path.rstrip('/')}",
+                        f"{scheme}://{mhost}{mhost}{path.rstrip('/')}",
                         f"{scheme}://{mhost}{(path.rstrip('/') + '/') if path != '/' else '/'}"
                     ])
-        except Exception:
+        except Exception as e:
+            print(f"DEBUG: URL parsing error: {e}")
             pass
+            
         try:
             candidates.append(_normalize_to_page_url(clean))
         except Exception:
             pass
 
-        # --- NEW FIX: Add the canonical Facebook URL explicitly ---
-        # This ensures the exact canonical URL format used during seeding
-        # (e.g., https://www.facebook.com/PageName) is checked for a hash match.
-        fbid_clean = extract_fbid(clean) # Uses the existing extractor
-        if fbid_clean:
-            canonical_fb_url = f"{scheme}://www.facebook.com/{fbid_clean}"
-            if canonical_fb_url.lower() not in [c.lower() for c in candidates]:
-                candidates.append(canonical_fb_url)
-        # --- END NEW FIX ---
+        # --- DEBUG LINE ADDED ---
+        print(f"DEBUG: Candidate URLs for registry lookup: {candidates}")
+        # --- END DEBUG LINE ---
 
+        # 1. Check by Document ID (MD5 Hash of Normalized URL)
         for u in candidates:
             try:
                 did = _get_cache_key(u)
+                # --- DEBUG LINE ADDED ---
+                print(f"DEBUG: Attempting lookup by Document ID: {did} (from URL: {u[:50]}...)")
+                # --- END DEBUG LINE ---
                 snap = db.collection("verified_registry").document(did).get()
                 if snap.exists:
+                    print(f"DEBUG: REGISTRY HIT! Found document ID: {did}")
                     return snap.to_dict()
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Error in Document ID lookup: {e}")
                 continue
 
+
+        # 2. Check by 'url' Field (Where Clause)
         for u in candidates:
             try:
-                # Using a standard where clause if FieldFilter isn't imported
+                # --- DEBUG LINE ADDED ---
+                print(f"DEBUG: Attempting lookup by 'url' field (where clause) for URL: {u[:50]}...")
+                # --- END DEBUG LINE ---
                 qs = db.collection("verified_registry").where("url", "==", u).limit(1).get()
                 for s in qs:
+                    print(f"DEBUG: REGISTRY HIT! Found document by WHERE clause.")
                     return s.to_dict()
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Error in WHERE clause lookup: {e}")
                 continue
-    except Exception:
-        pass
-    return None
-# --- END FIX 2 ---
+                
+        print("DEBUG: Registry check completed. No match found.")
 
+    except Exception as e:
+        print(f"DEBUG: Critical error during _check_verified_registry: {e}")
+        pass
+        
+    return None
 
 def _set_last_graph_error(status_code: Any, details: str) -> None:
     global LAST_GRAPH_ERROR
@@ -493,7 +503,7 @@ def _normalize_to_page_url(u: str) -> str:
 def fetch_metadata(fbid: str) -> Dict[str, Any]:
     base_fields = ["name", "link", "created_time", "start_info", "founded", "birthday"]
     res = _graph_get(fbid, {"fields": ",".join(base_fields)}, use_cache=True)
-    
+   
     if _has_graph_error(res): return res
     if not isinstance(res, dict): res = {}
 
@@ -526,13 +536,13 @@ def fetch_metadata(fbid: str) -> Dict[str, Any]:
                 if int(((r.get("details") or {}).get("error") or {}).get("code") or 0) == 10: restricted = True
             except: pass
         elif isinstance(r, dict) and fld in r: res[fld] = r.get(fld)
-    
+   
     pic_r = _graph_get(fbid, {"fields": "picture{url,is_silhouette}"}, use_cache=True)
     if not _has_graph_error(pic_r) and isinstance(pic_r, dict) and pic_r.get("picture"): res["picture"] = pic_r.get("picture")
-    
+   
     cover_r = _graph_get(fbid, {"fields": "cover{source}"}, use_cache=True)
     if not _has_graph_error(cover_r) and isinstance(cover_r, dict) and cover_r.get("cover"): res["cover"] = cover_r.get("cover")
-    
+   
     posts = _graph_get(f"{fbid}/posts", {"limit": 10, "fields": "created_time"}, use_cache=True)
     if not _has_graph_error(posts) and isinstance(posts.get("data"), list):
         res["recent_posts_count"] = len(posts.get("data") or [])
@@ -890,7 +900,7 @@ def run_ai_agent_analysis(profile_data):
         return {"ai_score": 50, "explanation": f"AI Analysis Failed: {str(e)[:50]}..."}
 
 
-# SCORING
+# SCORING (UPDATED WITH AI CAP)
 def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
     # --- 1. ZERO TRUST BASELINE ---
     # Accounts start in the "High Risk" zone (35) until they prove otherwise.
@@ -992,7 +1002,7 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         pass # pass because our graph/apify will not get it so we are being unfair if we penalize them for not getting it
         
         # Website Logic (Cross-Verification)
-        if site_links_to_page: layer2 += 15
+        if site_links_page: layer2 += 15
         elif site_has_fb: layer2 += 5
 
 
@@ -1028,6 +1038,18 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         if not has_cover: layer1 += 5
         if followers < 100: layer2 += 10
         if followers > 5000 and posts_count == 0: layer2 += 30
+    
+    # --- LAYER 3: ACTIVITY (The "Pulse") ---
+    if posts_count > 0: layer3 += 10
+   
+    # Consistency Bonus
+    if posts_count >= 5:
+        if followers >= 10000: layer3 += 10 # High activity + High reach = Trust
+        elif followers < 500: layer3 += 5   # Just an active normal person
+   
+    # Add external spam scores (if using tools like Apify spam check)
+    layer3 += meta.get("spam_score", 0)
+
 
     # --- FINAL CALCULATION ---
     rule_score_raw = max(0, min(100, base + layer1 + layer2 + layer3))
@@ -1062,9 +1084,14 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         final_score = (rule_score_raw * weight_rules) + (ai_trust_score * (1 - weight_rules))
 
 
-    # Absolute Overrides for Verification
+    # Absolute Overrides and Final AI Cap for Verified Accounts
     if verified or verified_from_registry:
-        final_score = 100
+        final_score = 100 # Default score for verified/registry accounts
+
+        # Apply the AI CAP: If verified (but NOT in our high-trust registry) AND AI flags high risk (>= 70).
+        # This caps the score at 75 for legitimate, but compromised/spamming verified accounts.
+        if verified and (not verified_from_registry) and ai_score >= 70:
+            final_score = min(final_score, 75)
     
     trust = final_score / 100.0
     
@@ -1104,7 +1131,6 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         "ai_analysis": ai_result.get("explanation"),
         "followers": followers
     }
-
 
 # Labels
 def _score_to_verdict(raw: int) -> str:
@@ -1344,7 +1370,7 @@ def poser_analyze_full():
     url = (data.get("url") or data.get("id_or_url") or "").strip().strip('`').strip('"').strip("'")
     user_id = data.get('userID') or data.get('userId') or data.get('uid')
     
-    # Check DB status early
+    # 2. Check DB status early
     if db is None:
           return jsonify({"error": "Database connection failed at startup."}), 500
     if not url: return jsonify({"error": "Missing url"}), 400
@@ -1363,74 +1389,95 @@ def poser_analyze_full():
     except Exception:
         registry = None
 
-
-    # --- 1. CHECK EXISTING DATA (Fastest) ---
+    # --- 1. check muna first if may existing data na (Fastest) ---
     if db:
         try:
             doc_id = _get_cache_key(url)
             doc = db.collection(VERDICT_COLLECTION).document(doc_id).get()
+            
             if doc.exists:
                 existing_data = doc.to_dict() or {}
-                try:
-                    reg2 = registry or _check_verified_registry(url)
-                except Exception:
-                    reg2 = None
                 
-                # --- FIXED LOGIC START ---
-                if reg2 and (reg2.get("verified") or reg2.get("is_verified") or reg2.get("is_verified_source")):
-                    try:
-                        resp = existing_data.get("analysis") or existing_data
-                        if isinstance(resp, dict):
-                            md = resp.get("metadata") or {}
-                            md["is_verified"] = True
-                            md["verification_status"] = "blue_verified"
-                            md["verification_source"] = "verified_registry"
-                            resp["metadata"] = md
-                            an = resp.get("analysis") or {}
-                            an["data_source_note"] = "Verified Registry (confirmed official)"
-                            final_score = 100
-                            an["final_trust_score"] = final_score
-                            an["verdict"] = "Low Risk - Likely Authentic / Trusted Source."
-                            an["human_explanation"] = "Verified Registry: Official page confirmed. Strong signals of authenticity."
-                            
-                            bd = an.get("breakdown") or {}
-                            try:
-                                new_ai = run_ai_agent_analysis(md)
-                                ai_score = int(new_ai.get("ai_score", 50))
-                                # ai_expl = _normalize_ai_explanation(md, new_ai) # _normalize_ai_explanation is not defined in your snippets, defaulting to simple key
-                                ai_expl = new_ai.get("explanation")
-                                bd["ai_score"] = ai_score
-                                bd["ai_agent_trust_score"] = 100 - ai_score
-                                bd["ai_explanation"] = ai_expl
-                                bd["ai_verdict"] = ("Likely Poser" if ai_score >= 70 else ("Likely Authentic" if ai_score <= 30 else "Mixed Signals"))
-                            except Exception:
-                                bd["ai_explanation"] = "Verified account with official signals. Registry and badge confirmed."
-                                bd["ai_agent_trust_score"] = 100
-                                bd["ai_verdict"] = "Likely Authentic"
-                            
-                            bd["rule_based_score"] = 100
-                            an["breakdown"] = bd
-                            resp["analysis"] = an
-                            
-                            db.collection(VERDICT_COLLECTION).document(doc_id).set({**resp, "analysis": resp, "last_updated": firestore.SERVER_TIMESTAMP}, merge=True)
-                            return jsonify(resp)
-                    except Exception:
-                        pass
-                # --- FIXED LOGIC END ---
+                # Check Registry Status (reg2 will contain registry data if found)
+                reg2 = registry or _check_verified_registry(url)
+                is_registry_verified = reg2 and (reg2.get("verified") or reg2.get("is_verified") or reg2.get("is_verified_source"))
+                
+                
+                # Check if we need to RE-PROCESS (Registry found OR cache is too old/sparse)
+                current_score = (existing_data.get("analysis") or {}).get("final_trust_score", 0)
+                
+                # Option A: Registry override is needed (score is not 100 but should be)
+                if is_registry_verified and current_score < 100:
+                    needs_reprocess = True
+                    print(f"CACHE: Forcing reprocess due to VERIFIED REGISTRY override for {url}")
+                
+                # Option B: Cached analysis is missing AI data or is marked sparse
+                elif not (existing_data.get("analysis") and 
+                          existing_data["analysis"].get("breakdown", {}).get("ai_explanation") and
+                          existing_data["analysis"].get("data_availability", "").lower() != "sparse"):
+                    needs_reprocess = True
+                    print(f"CACHE: Forcing reprocess due to missing AI/sparse data for {url}")
 
+                else:
+                    needs_reprocess = False
+                
+                
+                if needs_reprocess:
+                    # Fetch raw data to use in compute_poser_score
+                    raw_doc = db.collection(RAW_DATA_COLLECTION).document(doc_id).get()
+                    meta = (raw_doc.to_dict() or {}) if raw_doc.exists else {}
 
+                    # Apply Registry Overrides to the fetched meta BEFORE scoring
+                    if is_registry_verified:
+                        meta["is_verified"] = True
+                        meta["verification_status"] = "blue_verified"
+                        meta["verification_source"] = "verified_registry"
+
+                    # Ensure we have enough data to score, otherwise let it fall through to a full scrape
+                    if meta.get("name") and (meta.get("followers_count") or meta.get("fan_count")):
+                        # RE-RUN SCORE and build response
+                        score = compute_poser_score(meta)
+                        res = build_response(url, meta, score, resolved_id=meta.get("id"))
+                        
+                        # Cache the new verdict and return
+                        payload = {**res, "analysis": res, "last_updated": firestore.SERVER_TIMESTAMP}
+                        db.collection(VERDICT_COLLECTION).document(doc_id).set(payload, merge=True)
+                        return jsonify(res)
+                    else:
+                        print(f"CACHE: Failed reprocess due to missing meta data, will fall through to full scrape for {url}")
+                
+                
+                # --- FIX: ALWAYS INJECT REGISTRY METADATA IF FOUND BEFORE RETURNING CACHE ---
                 if existing_data.get("analysis"):
-                    an = existing_data.get("analysis") or {}
-                    bd = (an.get("breakdown") or {})
-                    has_ai = bool(bd.get("ai_explanation")) or (bd.get("ai_score") is not None)
-                    availability = str((an.get("data_availability") or "").strip().lower())
-                    if has_ai and availability != "sparse":
-                        return jsonify(an)
+                    
+                    if is_registry_verified:
+                        # Clone the existing response to modify it
+                        resp = existing_data.get("analysis") or existing_data
+                        
+                        # Ensure metadata is updated with the registry flag
+                        resp["metadata"]["verification_source"] = "verified_registry"
+                        resp["metadata"]["is_verified"] = True
+                        resp["analysis"]["final_trust_score"] = 100
+                        resp["analysis"]["verdict"] = "Low Risk - Likely Authentic / Trusted Source."
+                        resp["analysis"]["human_explanation"] = "Verified Registry: Official page confirmed. Strong signals of authenticity."
+                        resp["analysis"]["data_source_note"] = "Verified Registry (confirmed official)"
+                        resp["analysis"]["breakdown"]["rule_based_score"] = 100
+                        
+                        # Re-save the now-correctly-flagged cache for future use
+                        db.collection(VERDICT_COLLECTION).document(doc_id).set(
+                            {**resp, "analysis": resp, "last_updated": firestore.SERVER_TIMESTAMP}, merge=True
+                        )
+                        return jsonify(resp)
+
+                    # If not registry verified (and no reprocess was needed), return the existing cache as is
+                    return jsonify(existing_data["analysis"]) 
+
                 if existing_data.get("classification"):
                     return jsonify(existing_data)
-        except Exception:
-            pass
-
+        
+        except Exception as e:
+            print(f"FATAL CACHE CHECK ERROR: {e}")
+            pass # Fall through to full scrape if cache check fails
 
     # --- 2. GET RAW DATA ---
     meta = None
@@ -1453,7 +1500,6 @@ def poser_analyze_full():
         except Exception:
             pass
 
-
     # --- 3. SCRAPE NEW DATA ---
     if not meta:
         base_page_url = _normalize_to_page_url(url)
@@ -1462,6 +1508,7 @@ def poser_analyze_full():
         graph_pic = ((meta.get("picture") or {}).get("data") or {})
         has_bad_pic = (not graph_pic.get("url")) or bool(graph_pic.get("is_silhouette"))
         
+        # if graph api failed to get the data, apify will do it
         needs_fallback = (
             bool(meta.get("_permissions_restricted")) or
             (meta.get("fan_count") in (None, 0) and meta.get("followers_count") in (None, 0)) or
@@ -1473,10 +1520,8 @@ def poser_analyze_full():
             (not meta.get("about") and not meta.get("description"))
         )
 
-
         if FORCE_APIFY:
             needs_fallback = True
-
 
         if needs_fallback:
             try:
@@ -1493,29 +1538,12 @@ def poser_analyze_full():
                     meta["_apify_failed"] = True
                 except Exception:
                     pass
-                # Last-ditch fallback: scrape public meta tags
-                try:
-                    mt = _scrape_public_fb_metatags(base_page_url)
-                    if mt:
-                        for k in ["id","name","picture","cover","recent_posts_count","resource_type"]:
-                            if mt.get(k) is not None and not meta.get(k):
-                                meta[k] = mt.get(k)
-                        if not meta.get("username"):
-                            meta["username"] = extract_fbid(base_page_url)
-                        if not meta.get("link"):
-                            meta["link"] = base_page_url
-                    else:
-                        meta.setdefault("link", base_page_url)
-                except Exception:
-                    meta.setdefault("link", base_page_url)
-
 
     try:
         flags = _check_website_reciprocity(meta.get("website"), base_page_url or meta.get("link"), meta.get("username"))
         meta.update(flags)
     except Exception:
         pass
-
 
     # Check verified registry
     try:
@@ -1532,10 +1560,8 @@ def poser_analyze_full():
     elif not meta.get("username") and meta.get("link"):
           meta["username"] = extract_fbid(meta["link"])
 
-
     score = compute_poser_score(meta)
     res = build_response(url, meta, score, resolved_id=fbid)
-
 
     # --- SAVE FINAL VERDICT ---
     if db:
