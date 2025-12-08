@@ -41,32 +41,61 @@ if CORS_ORIGINS_ENV:
 else:
     allowed_origins = DEFAULT_ALLOWED_ORIGINS
 
-CORS(
-    app, # This call now correctly uses the 'app' defined above
-    resources={
-        r"/api/*": {
-            "origins": allowed_origins,
-            "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization", "X-Admin-Secret"],
-        }
-    },
-    supports_credentials=False,
-)
+# We handle CORS manually for /api/* routes for better control
+# Flask-CORS is not used to avoid conflicts with our manual OPTIONS handler
 
 @app.after_request
 def _add_cors_headers(resp):
     try:
-        origin = request.headers.get("Origin")
-        if origin and origin in allowed_origins and str(request.path or "").startswith("/api/"):
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Vary"] = "Origin"
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
+        # Only add CORS headers for API routes
+        if str(request.path or "").startswith("/api/"):
+            origin = request.headers.get("Origin")
+            if origin and origin in allowed_origins:
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Vary"] = "Origin"
+                resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+                req_headers = request.headers.get("Access-Control-Request-Headers")
+                if req_headers:
+                    resp.headers["Access-Control-Allow-Headers"] = req_headers
+                else:
+                    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
+                resp.headers["Access-Control-Max-Age"] = "3600"
         return resp
     except Exception:
         return resp
 
 _CORS_HOOK = _add_cors_headers
+
+@app.before_request
+def _handle_options_preflight():
+    if request.method == "OPTIONS" and str(request.path or "").startswith("/api/"):
+        try:
+            origin = request.headers.get("Origin")
+            # Always return a response for OPTIONS requests
+            if origin and origin in allowed_origins:
+                resp = Flask.response_class(status=204)
+                resp.headers["Access-Control-Allow-Origin"] = origin
+                resp.headers["Vary"] = "Origin"
+                resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+                req_headers = request.headers.get("Access-Control-Request-Headers")
+                if req_headers:
+                    resp.headers["Access-Control-Allow-Headers"] = req_headers
+                else:
+                    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
+                resp.headers["Access-Control-Max-Age"] = "3600"
+                return resp
+            else:
+                # Origin not allowed - reject the preflight
+                resp = Flask.response_class(status=403)
+                # Don't set Access-Control-Allow-Origin for disallowed origins
+                return resp
+        except Exception as e:
+            # Return a proper error response for OPTIONS
+            resp = Flask.response_class(status=500)
+            return resp
+    return None
+
+_OPTIONS_HOOK = _handle_options_preflight
 
 def _load_env_var(key: str, default: str = "") -> str:
     # --- SECURITY FIX: All local file parsing logic has been removed.
@@ -1531,11 +1560,6 @@ def poser_analyze_full():
 
 
     return jsonify(res)
-
-@app.route("/api/poser/analyze_full", methods=["OPTIONS"])
-def poser_analyze_full_options():
-    return ("", 204)
-
 
 def _extract_hostname(u: Optional[str]) -> Optional[str]:
     try:
