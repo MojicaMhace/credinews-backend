@@ -4,9 +4,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
-ENV PORT=10000
+# Do NOT override PORT; the platform injects PORT at runtime
 EXPOSE $PORT
 
-# COMMAND FOR POSER DETECTION: Added worker count and timeout for stability
-# The --workers 3 is a recommendation (2*CPU + 1 is a common rule)
+# Gunicorn for Poser Detection API
 CMD gunicorn poser_detection_api:app --bind 0.0.0.0:$PORT --timeout 120

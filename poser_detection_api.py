@@ -41,37 +41,42 @@ if CORS_ORIGINS_ENV:
 else:
     allowed_origins = DEFAULT_ALLOWED_ORIGINS
 
-# We handle CORS manually for /api/* routes for better control
-# Flask-CORS is not used to avoid conflicts with our manual OPTIONS handler
+CORS(
+    app, # This call now correctly uses the 'app' defined above
+    resources={
+        r"/api/*": {
+            "origins": allowed_origins,
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization", "X-Admin-Secret"],
+        }
+    },
+    supports_credentials=False,
+)
 
+# pyright: ignore
 @app.after_request
 def _add_cors_headers(resp):
     try:
-        # Only add CORS headers for API routes
-        if str(request.path or "").startswith("/api/"):
-            origin = request.headers.get("Origin")
-            if origin and origin in allowed_origins:
-                resp.headers["Access-Control-Allow-Origin"] = origin
-                resp.headers["Vary"] = "Origin"
-                resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-                req_headers = request.headers.get("Access-Control-Request-Headers")
-                if req_headers:
-                    resp.headers["Access-Control-Allow-Headers"] = req_headers
-                else:
-                    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
-                resp.headers["Access-Control-Max-Age"] = "3600"
+        origin = request.headers.get("Origin")
+        if origin and origin in allowed_origins and str(request.path or "").startswith("/api/"):
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Vary"] = "Origin"
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            req_headers = request.headers.get("Access-Control-Request-Headers")
+            if req_headers:
+                resp.headers["Access-Control-Allow-Headers"] = req_headers
+            else:
+                resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
         return resp
     except Exception:
         return resp
 
-_CORS_HOOK = _add_cors_headers
-
+# pyright: ignore
 @app.before_request
 def _handle_options_preflight():
-    if request.method == "OPTIONS" and str(request.path or "").startswith("/api/"):
-        try:
+    try:
+        if request.method == "OPTIONS" and str(request.path or "").startswith("/api/"):
             origin = request.headers.get("Origin")
-            # Always return a response for OPTIONS requests
             if origin and origin in allowed_origins:
                 resp = Flask.response_class(status=204)
                 resp.headers["Access-Control-Allow-Origin"] = origin
@@ -82,20 +87,9 @@ def _handle_options_preflight():
                     resp.headers["Access-Control-Allow-Headers"] = req_headers
                 else:
                     resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Secret"
-                resp.headers["Access-Control-Max-Age"] = "3600"
                 return resp
-            else:
-                # Origin not allowed - reject the preflight
-                resp = Flask.response_class(status=403)
-                # Don't set Access-Control-Allow-Origin for disallowed origins
-                return resp
-        except Exception as e:
-            # Return a proper error response for OPTIONS
-            resp = Flask.response_class(status=500)
-            return resp
-    return None
-
-_OPTIONS_HOOK = _handle_options_preflight
+    except Exception:
+        return None
 
 def _load_env_var(key: str, default: str = "") -> str:
     # --- SECURITY FIX: All local file parsing logic has been removed.
@@ -186,8 +180,15 @@ except Exception:
     db = None
     print(" Firestore client could not be initialized.")
 
+# --- START FIX 1: CANONICAL HASHING ---
 def _get_cache_key(url: str) -> str:
-    return hashlib.md5(url.strip().lower().encode('utf-8')).hexdigest()
+    clean_url = url.strip().lower()
+    # This prevents hash mismatches between '...PHL' and '...PHL/'
+    if clean_url.endswith('/') and len(clean_url) > 1:
+        clean_url = clean_url.rstrip('/')
+        
+    return hashlib.md5(clean_url.encode('utf-8')).hexdigest()
+# --- END FIX 1 ---
 
 
 def _require_admin_secret(data: Optional[Dict[str, Any]] = None) -> bool:
@@ -211,7 +212,7 @@ def _make_cache_key(path: str, params: Optional[Dict[str, Any]]) -> str:
         return f"{path.strip('/')}?" + "&".join([f"{k}={v}" for k, v in items])
     except Exception: return path.strip("/")
 
-
+# --- START FIX 2: FORCE CANONICAL CANDIDATE ---
 def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
     try:
         if not db: return None
@@ -257,6 +258,15 @@ def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
         except Exception:
             pass
 
+        # --- NEW FIX: Add the canonical Facebook URL explicitly ---
+        # This ensures the exact canonical URL format used during seeding
+        # (e.g., https://www.facebook.com/PageName) is checked for a hash match.
+        fbid_clean = extract_fbid(clean) # Uses the existing extractor
+        if fbid_clean:
+            canonical_fb_url = f"{scheme}://www.facebook.com/{fbid_clean}"
+            if canonical_fb_url.lower() not in [c.lower() for c in candidates]:
+                candidates.append(canonical_fb_url)
+        # --- END NEW FIX ---
 
         for u in candidates:
             try:
@@ -267,10 +277,6 @@ def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
             except Exception:
                 continue
 
-
-        # If using FieldFilter, ensure you have the correct import or just iterate
-        # Assuming FieldFilter is handled by firebase_admin internally or omitted in your pasted snippet
-        # If this crashes, you might need: from google.cloud.firestore_v1.base_query import FieldFilter
         for u in candidates:
             try:
                 # Using a standard where clause if FieldFilter isn't imported
@@ -282,6 +288,7 @@ def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
     except Exception:
         pass
     return None
+# --- END FIX 2 ---
 
 
 def _set_last_graph_error(status_code: Any, details: str) -> None:
@@ -486,7 +493,7 @@ def _normalize_to_page_url(u: str) -> str:
 def fetch_metadata(fbid: str) -> Dict[str, Any]:
     base_fields = ["name", "link", "created_time", "start_info", "founded", "birthday"]
     res = _graph_get(fbid, {"fields": ",".join(base_fields)}, use_cache=True)
-   
+    
     if _has_graph_error(res): return res
     if not isinstance(res, dict): res = {}
 
@@ -519,13 +526,13 @@ def fetch_metadata(fbid: str) -> Dict[str, Any]:
                 if int(((r.get("details") or {}).get("error") or {}).get("code") or 0) == 10: restricted = True
             except: pass
         elif isinstance(r, dict) and fld in r: res[fld] = r.get(fld)
-   
+    
     pic_r = _graph_get(fbid, {"fields": "picture{url,is_silhouette}"}, use_cache=True)
     if not _has_graph_error(pic_r) and isinstance(pic_r, dict) and pic_r.get("picture"): res["picture"] = pic_r.get("picture")
-   
+    
     cover_r = _graph_get(fbid, {"fields": "cover{source}"}, use_cache=True)
     if not _has_graph_error(cover_r) and isinstance(cover_r, dict) and cover_r.get("cover"): res["cover"] = cover_r.get("cover")
-   
+    
     posts = _graph_get(f"{fbid}/posts", {"limit": 10, "fields": "created_time"}, use_cache=True)
     if not _has_graph_error(posts) and isinstance(posts.get("data"), list):
         res["recent_posts_count"] = len(posts.get("data") or [])
@@ -985,7 +992,7 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
         pass # pass because our graph/apify will not get it so we are being unfair if we penalize them for not getting it
         
         # Website Logic (Cross-Verification)
-        if site_links_page: layer2 += 15
+        if site_links_to_page: layer2 += 15
         elif site_has_fb: layer2 += 5
 
 
@@ -1336,14 +1343,14 @@ def poser_analyze_full():
     data = request.get_json(force=True) or {}
     url = (data.get("url") or data.get("id_or_url") or "").strip().strip('`').strip('"').strip("'")
     user_id = data.get('userID') or data.get('userId') or data.get('uid')
-   
+    
     # Check DB status early
     if db is None:
-         return jsonify({"error": "Database connection failed at startup."}), 500
+          return jsonify({"error": "Database connection failed at startup."}), 500
     if not url: return jsonify({"error": "Missing url"}), 400
     parsed = parse_url(url)
     if not parsed.get("is_valid"): return jsonify({"error": "Invalid URL"}), 400
-   
+    
     if "facebook.com/share/" in url:
         resolved = _resolve_fb_share_url(url)
         if resolved:
@@ -1560,6 +1567,11 @@ def poser_analyze_full():
 
 
     return jsonify(res)
+
+@app.route("/api/poser/analyze_full", methods=["OPTIONS"])
+def poser_analyze_full_options():
+    return ("", 204)
+
 
 def _extract_hostname(u: Optional[str]) -> Optional[str]:
     try:
