@@ -16,6 +16,9 @@ from datetime import datetime, timezone
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from google.cloud.firestore_v1.base_query import FieldFilter
+from functools import wraps
+from firebase_admin import auth
+
 
 try:
     from groq import Groq
