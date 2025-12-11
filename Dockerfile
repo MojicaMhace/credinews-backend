@@ -8,4 +8,4 @@ RUN python -m nltk.downloader punkt stopwords
 COPY . .
 ENV PORT=10000
 EXPOSE $PORT
-CMD gunicorn fact_check_api:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120 --preload
+CMD gunicorn fact_check_api:app --bind 0.0.0.0:$PORT --timeout 600 --workers 1 --threads 4 --worker-class gthread
