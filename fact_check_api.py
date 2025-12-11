@@ -14,6 +14,7 @@ from urllib.parse import urlparse, unquote
 import html
 from flask import Flask
 from flask_cors import CORS
+import gc
 
 # --- NEW: Load .env file explicitly ---
 try:
@@ -1127,7 +1128,8 @@ def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
 
     except Exception as e:
         print(f"Playwright scrape failed: {e}")
-        return {"text": "", "image_url": None, "page_name": None}
+    gc.collect() 
+    return result
 
 
 
