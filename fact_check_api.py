@@ -32,7 +32,8 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+cors_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*").split(",")
+CORS(app, origins=cors_origins)
 
 @app.route('/')
 def index():
