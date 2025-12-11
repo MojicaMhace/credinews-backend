@@ -12,6 +12,8 @@ import re
 from typing import Dict, Any, List, Tuple, Optional
 from urllib.parse import urlparse, unquote
 import html
+from flask import Flask
+from flask_cors import CORS
 
 # --- NEW: Load .env file explicitly ---
 try:
@@ -29,8 +31,7 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-cors_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*").split(",")
-CORS(app, origins=cors_origins)
+CORS(app, resources={r"/api/*": {"origins": "https://credinews-frontend.vercel.app"}})
 
 @app.route('/')
 def index():
@@ -178,6 +179,7 @@ CREDIBLE_SOCIAL_PATTERNS: List[Dict[str, Any]] = [
     {'pattern': r"facebook\.com/BusinessWorldOnline",         'score': 0.25, 'name': 'BusinessWorld (Facebook)'},
     {'pattern': r"facebook\.com/verafiles",                   'score': 0.25, 'name': 'VERA Files (Facebook)'},
     {'pattern': r"facebook\.com/rapplerlife",                 'score': 0.25, 'name': 'Rappler Life (Facebook)'},
+    {'pattern': r"facebook\.com/gmanewspublicaffairs",        'score': 0.25, 'name': 'GMA News Public Affairs (Facebook)'},
 
     # --- BIÑAN CITY, LAGUNA: Local Government Unit (LGU) ---
     {'pattern': r"facebook\.com/CIOBinan",                   'score': 0.25, 'name': 'Biñan City Info Office (Official LGU)'},
