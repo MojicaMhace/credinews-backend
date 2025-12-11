@@ -209,7 +209,7 @@ def _make_cache_key(path: str, params: Optional[Dict[str, Any]]) -> str:
 
 def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
     try:
-        if not db: 
+        if not db:
             print("DEBUG: Firestore client (db) is None. Cannot check registry.")
             return None
             
@@ -250,7 +250,7 @@ def _check_verified_registry(url: str) -> Optional[Dict[str, Any]]:
                     mhost = ('m.' + host) if not host.startswith('m.') else host
                     candidates.extend([
                         f"{scheme}://{mhost}{path}",
-                        f"{scheme}://{mhost}{mhost}{path.rstrip('/')}",
+                        f"{scheme}://{mhost}{path.rstrip('/')}",
                         f"{scheme}://{mhost}{(path.rstrip('/') + '/') if path != '/' else '/'}"
                     ])
         except Exception as e:
@@ -506,7 +506,7 @@ def _normalize_to_page_url(u: str) -> str:
 def fetch_metadata(fbid: str) -> Dict[str, Any]:
     base_fields = ["name", "link", "created_time", "start_info", "founded", "birthday"]
     res = _graph_get(fbid, {"fields": ",".join(base_fields)}, use_cache=True)
-   
+    
     if _has_graph_error(res): return res
     if not isinstance(res, dict): res = {}
 
@@ -539,13 +539,13 @@ def fetch_metadata(fbid: str) -> Dict[str, Any]:
                 if int(((r.get("details") or {}).get("error") or {}).get("code") or 0) == 10: restricted = True
             except: pass
         elif isinstance(r, dict) and fld in r: res[fld] = r.get(fld)
-   
+    
     pic_r = _graph_get(fbid, {"fields": "picture{url,is_silhouette}"}, use_cache=True)
     if not _has_graph_error(pic_r) and isinstance(pic_r, dict) and pic_r.get("picture"): res["picture"] = pic_r.get("picture")
-   
+    
     cover_r = _graph_get(fbid, {"fields": "cover{source}"}, use_cache=True)
     if not _has_graph_error(cover_r) and isinstance(cover_r, dict) and cover_r.get("cover"): res["cover"] = cover_r.get("cover")
-   
+    
     posts = _graph_get(f"{fbid}/posts", {"limit": 10, "fields": "created_time"}, use_cache=True)
     if not _has_graph_error(posts) and isinstance(posts.get("data"), list):
         res["recent_posts_count"] = len(posts.get("data") or [])
@@ -979,7 +979,7 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
 
     # --- CORPORATE/UTILITIES (Phishing targets) ---
     "bdo", "bpi", "metrobank", "landbank", "unionbank", "gcash", "maya",
-    "globe telecom", "smart communications", "pldt", "converge ict",
+    "globe telecom", "smart communications", "pldt", "converge ic",
     "meralco", "maynilad", "manila water",
     "lazada", "shopee", "grab philippines", "angkas", "joyride"
 }
@@ -1044,12 +1044,12 @@ def compute_poser_score(meta: Dict[str, Any]) -> Dict[str, Any]:
     
     # --- LAYER 3: ACTIVITY (The "Pulse") ---
     if posts_count > 0: layer3 += 10
-   
+    
     # Consistency Bonus
     if posts_count >= 5:
         if followers >= 10000: layer3 += 10 # High activity + High reach = Trust
         elif followers < 500: layer3 += 5   # Just an active normal person
-   
+    
     # Add external spam scores (if using tools like Apify spam check)
     layer3 += meta.get("spam_score", 0)
 
@@ -1233,6 +1233,55 @@ def build_response(url: str, meta: Dict[str, Any], score: Dict[str, Any], resolv
     }
 
 
+def verify_firebase_token(id_token: str) -> Optional[str]:
+    """Verifies a Firebase ID Token and returns the user's UID if valid."""
+    if not id_token:
+        return None
+    try:
+        # Uses the firebase-admin SDK to check the token
+        decoded_token = auth.verify_id_token(id_token)
+        return decoded_token['uid'] # Returns the unique user ID (UID)
+    except Exception as e:
+        # If verification fails (expired, invalid signature), it returns None
+        print(f"Firebase Token Verification Failed: {e}")
+        return None
+
+def firebase_auth_required(f):
+    """Decorator to require a valid Firebase ID Token in the Authorization header."""
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        # 1. Get the token from the Authorization header (e.g., 'Bearer [token]')
+        auth_header = request.headers.get('Authorization')
+        if not auth_header or not auth_header.startswith('Bearer '):
+            return jsonify({'error': 'Authorization header must be Bearer token'}), 401
+        
+        id_token = auth_header.split(' ')[1]
+        
+        # 2. Verify the token
+        user_uid = verify_firebase_token(id_token)
+        
+        if not user_uid:
+            return jsonify({'error': 'Invalid or expired authentication token'}), 401
+        
+        # Attach user ID to the request object for use in the endpoint
+        request.user_uid = user_uid
+        
+        return f(*args, **kwargs)
+    return decorated
+
+# Example of a new secure endpoint using the decorator
+@app.route('/api/auth/status', methods=['GET'])
+@firebase_auth_required
+def check_auth_status():
+    """Returns the user ID if the Firebase token is valid."""
+    # If the function reaches here, the token is valid, and request.user_uid is available
+    return jsonify({
+        'status': 'authenticated',
+        'user_id': request.user_uid,
+        'message': 'Access granted by Firebase token verification.'
+    })
+
+
 @app.route("/", methods=["GET"])
 def index():
     return jsonify({
@@ -1242,7 +1291,8 @@ def index():
         "token_loaded": bool(META_GRAPH_TOKEN),
         "endpoints": {
             "/api/poser/health": "GET - Health/status",
-            "/api/poser/detect": "POST - Analyze Facebook Page/Profile URL"
+            "/api/poser/detect": "POST - Analyze Facebook Page/Profile URL",
+            "/api/auth/status": "GET - Checks Firebase Auth (Requires Bearer Token)"
         }
     })
 
@@ -1298,6 +1348,13 @@ def admin_mark_verified():
             try:
                 did = _get_cache_key(u)
                 db.collection(RAW_DATA_COLLECTION).document(did).set(payload, merge=True)
+                db.collection(REGISTRY_COLLECTION).document(did).set({
+                    "url": u,
+                    "is_verified": True,
+                    "verification_status": "blue_verified",
+                    "verification_source": "verified_registry",
+                    "last_updated": firestore.SERVER_TIMESTAMP
+                }, merge=True)
                 updated.append(did)
             except Exception:
                 continue
