@@ -33,6 +33,14 @@ app = Flask(__name__)
 cors_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*").split(",")
 CORS(app, origins=cors_origins)
 
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "online",
+        "message": "Fact Check API is running",
+        "zyla_enabled": ZYLA_ENABLED
+    })
+
 # Google Fact Check API key
 FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
 FACT_CHECK_API_URL = "https://factchecktools.googleapis.com/v1alpha1/claims:search"
