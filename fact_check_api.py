@@ -12,8 +12,6 @@ import re
 from typing import Dict, Any, List, Tuple, Optional
 from urllib.parse import urlparse, unquote
 import html
-from flask import Flask
-from flask_cors import CORS
 import gc
 
 # --- NEW: Load .env file explicitly ---
@@ -32,57 +30,7 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-
-@app.before_request
-def handle_preflight():
-    if request.method == "OPTIONS":
-        response = app.make_default_options_response()
-
-        origin = request.headers.get("Origin")
-        if origin and origin in allowed_origins:
-            response.headers["Access-Control-Allow-Origin"] = origin
-
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-
-        return response
-
-DEFAULT_ALLOWED_ORIGINS = [
-    "https://credinews-frontend.vercel.app",
-    "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
-    "http://localhost:5000",
-   
-]
-
-CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGIN") # Note: You used singular in previous files
-if CORS_ORIGINS_ENV:
-    allowed_origins = [url.strip() for url in CORS_ORIGINS_ENV.split(',') if url.strip()]
-else:
-    allowed_origins = DEFAULT_ALLOWED_ORIGINS
-
-CORS(
-    app,
-    resources={
-        r"/api/*": {
-            "origins": allowed_origins,
-            "methods": ["GET", "POST", "OPTIONS"],
-            "allow_headers": ["Content-Type", "Authorization"],
-        }
-    },
-    supports_credentials=False, 
-)
-
-@app.after_request
-def _add_cors_headers(resp):
-    try:
-        origin = request.headers.get("Origin")
-        if origin and origin in allowed_origins:
-            resp.headers["Access-Control-Allow-Origin"] = origin
-            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-        return resp
-    except Exception:
-        return resp
+CORS(app, resources={r"/*": {"origins": "*"}})
 
 # Google Fact Check API key
 FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
