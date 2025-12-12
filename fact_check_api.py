@@ -30,7 +30,8 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*"}})
+cors_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*").split(",")
+CORS(app, origins=cors_origins)
 
 # Google Fact Check API key
 FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
