@@ -32,20 +32,16 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-
-# --- FIX: Robust CORS & Origin Handling ---
 raw_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*")
 cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
-# Apply CORS with credentials support
-CORS(app, resources={r"/api/*": {"origins": cors_origins}}, supports_credentials=True)
-
-# Safety Net: Force headers on every response (even errors)
-@app.after_request
-def after_request(response):
-    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
-    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
-    return response
+# Debug log to verify Render is reading the variable correctly
+print(f"DEBUG: CORS Allowed Origins: {cors_origins}")
+CORS(app, 
+     resources={r"/api/.*": {"origins": cors_origins}}, 
+     supports_credentials=True,
+     allow_headers=["Content-Type", "Authorization"], 
+     methods=["GET", "POST", "OPTIONS"])
 
 @app.route('/')
 def index():
