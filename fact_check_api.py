@@ -33,8 +33,20 @@ except Exception:
 
 app = Flask(__name__)
 
-# --- 1. USE THE SAME ROBUST ORIGIN LIST ---
-# This ensures both your Production and Preview Vercel URLs work
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = app.make_default_options_response()
+
+        origin = request.headers.get("Origin")
+        if origin and origin in allowed_origins:
+            response.headers["Access-Control-Allow-Origin"] = origin
+
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+
+        return response
+
 DEFAULT_ALLOWED_ORIGINS = [
     "https://credinews-frontend.vercel.app",
     "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
