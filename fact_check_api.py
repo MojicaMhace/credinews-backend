@@ -367,12 +367,10 @@ def query_zyla_fact_check(user_content: str) -> Dict[str, Any]:
     cache_key = f"zyla:{uc[:512]}"
     cached = _zyla_cache_get(cache_key)
     if cached is not None:
-        # Validate that cached data is not empty before returning
         if cached.get('verdict') or cached.get('fact_check_result'):
             print("[Zyla] Returning cached result")
             return cached
         else:
-             # If we cached an empty/failed result previously, ignore it and retry
             print("[Zyla] Invalid cache detected. Retrying API...")
 
     headers = {
@@ -392,7 +390,6 @@ def query_zyla_fact_check(user_content: str) -> Dict[str, Any]:
         print(f"[Zyla] Sending GET request to: {target_url}")
         print(f"[Zyla] Input (first 50 chars): {uc[:50]}...")
         
-        # Increased timeout to 30s
         resp = requests.get(target_url, headers=headers, params=params, timeout=30)
         
         print(f"[Zyla] Response Status: {resp.status_code}")
@@ -401,7 +398,23 @@ def query_zyla_fact_check(user_content: str) -> Dict[str, Any]:
             try:
                 raw_data = resp.json()
                 print(f"[Zyla] Raw Body: {str(raw_data)[:200]}")
-                data = parse_zyla_response(raw_data)
+
+                processed_data = raw_data
+                if isinstance(raw_data, list):
+                    if len(raw_data) > 0:
+                      
+                        if isinstance(processed_data, str):
+                            try:
+                                import json
+                                processed_data = json.loads(processed_data)
+                            except:
+                                print("[Zyla] Failed to parse string inside list")
+                                processed_data = {}
+                    else:
+                        processed_data = {}
+       
+
+                data = parse_zyla_response(processed_data)
                 
                 # ONLY CACHE IF SUCCESSFUL
                 if data.get('verdict'):
