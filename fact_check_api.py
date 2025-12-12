@@ -32,24 +32,45 @@ except Exception:
     predict_news_label = None
 
 app = Flask(__name__)
-raw_origins = os.environ.get("CORS_ALLOWED_ORIGIN", "*")
-cors_origins = [origin.strip() for origin in raw_origins.split(",") if origin.strip()]
 
-# Debug log to verify Render is reading the variable correctly
-print(f"DEBUG: CORS Allowed Origins: {cors_origins}")
-CORS(app, 
-     resources={r"/api/.*": {"origins": cors_origins}}, 
-     supports_credentials=True,
-     allow_headers=["Content-Type", "Authorization"], 
-     methods=["GET", "POST", "OPTIONS"])
+# --- 1. USE THE SAME ROBUST ORIGIN LIST ---
+# This ensures both your Production and Preview Vercel URLs work
+DEFAULT_ALLOWED_ORIGINS = [
+    "https://credinews-frontend.vercel.app",
+    "https://credinews-frontend-git-main-mhace-mojicas-projects.vercel.app",
+    "http://localhost:5000",
+   
+]
 
-@app.route('/')
-def index():
-    return jsonify({
-        "status": "online",
-        "message": "Fact Check API is running",
-        "zyla_enabled": ZYLA_ENABLED
-    })
+CORS_ORIGINS_ENV = os.getenv("CORS_ALLOWED_ORIGIN") # Note: You used singular in previous files
+if CORS_ORIGINS_ENV:
+    allowed_origins = [url.strip() for url in CORS_ORIGINS_ENV.split(',') if url.strip()]
+else:
+    allowed_origins = DEFAULT_ALLOWED_ORIGINS
+
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": allowed_origins,
+            "methods": ["GET", "POST", "OPTIONS"],
+            "allow_headers": ["Content-Type", "Authorization"],
+        }
+    },
+    supports_credentials=False, 
+)
+
+@app.after_request
+def _add_cors_headers(resp):
+    try:
+        origin = request.headers.get("Origin")
+        if origin and origin in allowed_origins:
+            resp.headers["Access-Control-Allow-Origin"] = origin
+            resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+            resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        return resp
+    except Exception:
+        return resp
 
 # Google Fact Check API key
 FACT_CHECK_API_KEY = os.environ.get("FACT_CHECK_API_KEY")
