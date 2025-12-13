@@ -452,12 +452,14 @@ def debug_zyla():
 def parse_zyla_response(data: Any) -> Dict[str, Any]:
     """
     Robust, Recursive Parser for Zyla's inconsistent JSON formats.
-    Updated to handle nested 'fact_check': {'verdict': 'True'} structures.
+    Updated to handle double-encoded JSON strings inside lists (e.g., ["{\n \"statement\": ... }"])
+    and capture 'analysis' as a verdict.
     """
     extracted_data = data
     final_dict = {}
 
     # 1. Recursive Unpacking Strategy
+    # We loop to unwrap multiple layers (e.g. list -> string -> json)
     for _ in range(4): 
         if isinstance(extracted_data, dict):
             final_dict = extracted_data
@@ -471,24 +473,32 @@ def parse_zyla_response(data: Any) -> Dict[str, Any]:
             
         if isinstance(extracted_data, str):
             try:
-                # Clean up API garbage characters
+                # Clean up API garbage characters seen in your screenshot
                 clean = extracted_data.strip()
                 
-                # FIX: Handle literal newline characters that break json.loads
-                clean = clean.replace('\\n', ' ').replace('\n', ' ')
+                # CRITICAL FIX 1: Handle the literal newlines '\n' that break json.loads
+                # Zyla returns: "{\n \"statement\": ... }"
+                clean = clean.replace('\n', ' ').replace('\r', '')
                 
-                # Remove wrapping brackets/quotes artifact
+                # Remove wrapping brackets/quotes artifact if they exist
                 if clean.startswith('[') and clean.endswith(']'):
                     clean = clean[1:-1]
+                
+                # Sometimes it's double quoted like "{\"key\":...}"
                 if clean.startswith('"') and clean.endswith('"'):
                     clean = clean[1:-1].replace('\\"', '"')
 
                 extracted_data = json.loads(clean, strict=False)
             except Exception:
-                break
+                # If standard load fails, try a more aggressive cleanup for the specific format in your image
+                try:
+                    # Remove the specific \" escape sequences if the first attempt failed
+                    clean_aggressive = extracted_data.replace('\\"', '"').replace('\\n', ' ')
+                    extracted_data = json.loads(clean_aggressive, strict=False)
+                except:
+                    break
 
     # 2. Validation & Normalization
-    # Check if we successfully parsed a dictionary
     raw_string_dump = json.dumps(data) if data else ""
     
     def normalize_verdict(v):
@@ -509,15 +519,16 @@ def parse_zyla_response(data: Any) -> Dict[str, Any]:
         data_lower = {k.lower(): v for k, v in final_dict.items()}
         
         # Priority keys to look for
-        keys_to_check = ['fact_check', 'fact_check_result', 'verdict', 'result', 'status', 'label']
+        # CRITICAL FIX 2: Added 'analysis' to this list because your logs show "analysis": "True"
+        keys_to_check = ['fact_check', 'fact_check_result', 'verdict', 'result', 'status', 'label', 'analysis']
         verdict_raw = next((data_lower[k] for k in keys_to_check if k in data_lower), None)
         
-        # FIX: Robust Nested Dictionary Handling
+        # Robust Nested Dictionary Handling
         if isinstance(verdict_raw, dict):
             # If we found a dict (like "fact_check"), look inside it for the actual verdict string
             inner_lower = {k.lower(): v for k, v in verdict_raw.items()}
             # Check for 'verdict', 'label', 'rating', 'result' inside the nested object
-            inner_verdict = next((inner_lower[k] for k in ['verdict', 'label', 'rating', 'result', 'fact_check'] if k in inner_lower), None)
+            inner_verdict = next((inner_lower[k] for k in ['verdict', 'label', 'rating', 'result'] if k in inner_lower), None)
             if inner_verdict:
                 verdict_raw = inner_verdict
             else:
@@ -532,10 +543,10 @@ def parse_zyla_response(data: Any) -> Dict[str, Any]:
 
     # 3. Aggressive Regex Fallback (If dictionary lookup failed)
     if not final_dict.get('verdict'):
-        # Matches: "verdict": "True" OR "label": "Fake"
+        # Matches: "verdict": "True" OR "label": "Fake" OR "analysis": "True"
         patterns = [
-            r'(?:\\)?"(?:verdict|label|rating)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)(?:\\)?"',
-            r'(?:\\)?"(?:fact_check)(?:\\)?"\s*:\s*{\s*(?:\\)?"(?:verdict)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)'
+            r'(?:\\)?"(?:verdict|label|rating|result|analysis)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)(?:\\)?"',
+            r'(?:\\)?"(?:fact_check)(?:\\)?"\s*:\s*{\s*(?:\\)?"(?:verdict|result)(?:\\)?"\s*:\s*(?:\\)?"([^"\\]+)'
         ]
         
         for pat in patterns:
@@ -551,7 +562,7 @@ def parse_zyla_response(data: Any) -> Dict[str, Any]:
     data_lower = {k.lower(): v for k, v in final_dict.items()}
     verdict = final_dict.get('verdict')
 
-    # Extract Explanation - Updated to look inside nested 'fact_check' if needed
+    # Extract Explanation - Look inside nested objects if needed
     explanation = (
         data_lower.get('explanation') or 
         data_lower.get('reason') or 
@@ -560,11 +571,13 @@ def parse_zyla_response(data: Any) -> Dict[str, Any]:
         data_lower.get('statement')
     )
     
-    # If explanation is missing but we have a nested object, check inside there
-    if not explanation and isinstance(data_lower.get('fact_check'), dict):
-        fc = data_lower.get('fact_check')
-        # fc keys might be mixed case, so we need to be careful or just check common ones
-        explanation = fc.get('reason') or fc.get('explanation') or fc.get('analysis')
+    # If explanation is missing, check inside nested objects like 'fact_check_result'
+    if not explanation:
+         for key in ['fact_check', 'fact_check_result']:
+             if isinstance(data_lower.get(key), dict):
+                 fc = data_lower.get(key)
+                 explanation = fc.get('reason') or fc.get('explanation') or fc.get('analysis')
+                 if explanation: break
 
     # Final logic for Confidence
     confidence = data_lower.get('confidence')
@@ -1620,7 +1633,7 @@ def fact_check_endpoint():
             overall_explanation = "Insufficient evidence; credibility cannot be confirmed based on available data."
         else:
             overall_label = "LOW CREDIBILITY"
-            overall_explanation = "This news contains disputed claims or inaccuracies according to fact checkers."
+            overall_explanation = "This news contains inaccurate information according to fact checks."
 
         if explanations:
             overall_explanation += " Details: " + " ".join(explanations[:2])
