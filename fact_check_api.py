@@ -402,14 +402,17 @@ def query_zyla_fact_check(user_content: str) -> Dict[str, Any]:
                 processed_data = raw_data
                 if isinstance(raw_data, list):
                     if len(raw_data) > 0:
-                      
-                        if isinstance(processed_data, str):
+                        item = raw_data[0]
+                        
+                        if isinstance(item, str):
                             try:
                                 import json
-                                processed_data = json.loads(processed_data)
+                                processed_data = json.loads(item)
                             except:
                                 print("[Zyla] Failed to parse string inside list")
                                 processed_data = {}
+                        elif isinstance(item, dict):
+                            processed_data = item
                     else:
                         processed_data = {}
        
@@ -1001,147 +1004,54 @@ def fetch_url_content(url):
 
 def scrape_with_playwright(url: str) -> Dict[str, Optional[str]]:
     """
-    Robust Facebook Scraper (Handles Video/Watch & Standard Posts).
+    REPLACEMENT: Lightweight scraper using requests instead of Playwright.
+    Playwright (Chrome) crashes Render Free Tier (OOM).
+    This version extracts OpenGraph tags safely to get the post caption/content.
     """
-    from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-    import re
-    import html
-
-    # Force Desktop URL
+    # Force Desktop URL for better metadata availability
     if "m.facebook.com" in url:
         url = url.replace("m.facebook.com", "www.facebook.com")
 
     try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(
-                headless=True, 
-                args=['--disable-gpu', '--no-sandbox', '--disable-extensions', '--disable-notifications']
-            )
-            context = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={'width': 1280, 'height': 800}
-            )
-            page = context.new_page()
+        # Use a generic User-Agent
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
+        }
+        
+        # 10 second timeout
+        resp = requests.get(url, headers=headers, timeout=10)
+        
+        if resp.status_code != 200:
+            return {"text": "", "image_url": None, "page_name": None}
+
+        html_content = resp.text
+        
+        # Extract basic metadata using regex (lightweight)
+        # Use existing helper function if available, or regex directly
+        image_url = _extract_og_image(html_content)
+        
+        # Extract Title / Page Name
+        page_name = _extract_meta_content(html_content, "og:title")
+        if not page_name:
+            page_name = _extract_tag_content(html_content, "title")
             
-            # Block media to speed up
-            page.route("**/*", lambda route: route.abort() if route.request.resource_type in ["image", "media", "font", "stylesheet"] else route.continue_())
-
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)
-                
-                # Check if we are in "Watch" mode (Video URL redirect)
-                is_video_view = "/watch" in page.url or "/videos/" in page.url or "/reel/" in page.url
-
-                # Wait for content
-                try:
-                    if is_video_view:
-                        # Video view often loads differently; wait for the video container
-                        page.wait_for_selector('div[data-pagelet="MainFeed"]', state="attached", timeout=8000)
-                    else:
-                        page.wait_for_selector('[role="article"]', state="attached", timeout=8000)
-                except:
-                    pass
-
-            except Exception:
-                browser.close()
-                return {"text": "", "image_url": None, "page_name": None}
-
-            # --- DOM CLEANUP (The Fix) ---
-            try:
-                page.evaluate("""() => {
-                    // 1. Remove Comment Lists (Standard & Video Sidebar)
-                    document.querySelectorAll('div[aria-label="Comment list"]').forEach(el => el.remove());
-                    document.querySelectorAll('ul').forEach(el => el.remove());
-                    
-                    // 2. Remove "Most Relevant" Filter (Your screenshot shows this)
-                    document.querySelectorAll('div[role="button"]').forEach(el => {
-                        if(el.innerText.includes('Most relevant')) el.closest('div').remove();
-                    });
-
-                    // 3. Remove Input Forms
-                    document.querySelectorAll('form').forEach(el => el.remove());
-                    
-                    // 4. Remove Action Bars (Like/Share)
-                    document.querySelectorAll('div[role="group"]').forEach(el => el.remove());
-                }""")
-            except:
-                pass
-
-            texts: List[str] = []
-
-            # --- EXTRACTION STRATEGY ---
+        # Extract Description/Text (This usually holds the FB Post Caption)
+        text = _extract_meta_content(html_content, "og:description")
+        if not text:
+            text = _extract_meta_content(html_content, "description")
             
-            # 1. Try Standard Message Container
-            try:
-                # This works for 90% of photo/text posts
-                msgs = page.locator('div[data-ad-preview="message"]')
-                if msgs.count() > 0:
-                    texts.append(msgs.first.inner_text())
-            except:
-                pass
-
-            # 2. Try Video Description Specifics (If Step 1 Failed)
-            if not texts:
-                try:
-                    # In Watch view, the caption is often in a specific container near the top
-                    # We look for a div that contains "See more" or is usually the description area
-                    # This selector targets the standard container for video descriptions
-                    desc = page.locator('span:has-text("See more")').first
-                    if desc.count() > 0:
-                        # Grab the parent which usually holds the full text
-                        parent = desc.locator('..')
-                        texts.append(parent.inner_text().replace("See more", ""))
-                    else:
-                        # Fallback: Look for the largest text block in the main feed only
-                        main_feed = page.locator('div[data-pagelet="MainFeed"] [role="article"]').first
-                        if main_feed.count() > 0:
-                             texts.append(main_feed.inner_text())
-                except:
-                    pass
-
-            # 3. Last Resort: [role="article"] but FILTERED
-            if not texts:
-                try:
-                    article = page.locator('[role="article"]').first
-                    if article.count() > 0:
-                        raw = article.inner_text()
-                        # Filtering to avoid short UI noise
-                        if len(raw) > 50: 
-                            texts.append(raw)
-                except:
-                    pass
-
-            # --- METADATA ---
-            image_url = None
-            try:
-                image_url = page.locator('meta[property="og:image"]').first.get_attribute('content')
-            except:
-                pass
-
-            page_name = None
-            try:
-                raw_title = page.locator('meta[property="og:title"]').first.get_attribute('content')
-                page_name = raw_title.split('|')[0].strip() if raw_title else None
-            except:
-                pass
-
-            browser.close()
-            
-            # Clean Text
-            final_text = "\n".join(texts).strip()
-            final_text = re.sub(r"(Like|Reply|Share|View more comments|Most relevant|Write a comment)", "", final_text, flags=re.IGNORECASE).strip()
-            final_text = re.sub(r"\s+\n", "\n", final_text).strip()
-
-            # Prevent empty return if possible
-            if not final_text and page_name:
-                final_text = f"Video post by {page_name}"
-
-            return {"text": final_text[:3000], "image_url": image_url, "page_name": page_name}
+        return {
+            "text": (text or "")[:3000], 
+            "image_url": image_url, 
+            "page_name": page_name
+        }
 
     except Exception as e:
-        print(f"Playwright scrape failed: {e}")
-    gc.collect() 
-    return result
+        print(f"Lightweight scrape failed: {e}")
+        # Clean up memory just in case
+        gc.collect()
+        return {"text": "", "image_url": None, "page_name": None}
 
 
 
